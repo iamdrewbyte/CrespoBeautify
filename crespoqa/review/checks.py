@@ -241,11 +241,10 @@ def check_rules(llm: LLM, doc: ExtractedDoc, chunks: list[str], notes: list[str]
     prompt = (
         f"You review a {kind} security report against these house rules:\n{numbered}\n\n"
         "Report only CLEAR violations in the text of the document. For each one: the rule number, the exact words "
-        "copied from the document (at most 25 words), a short explanation, and optionally a better wording. "
-        "Suggestions are never applied automatically. Do not report anything that is not clearly a violation, and do not "
+        "copied from the document (at most 25 words), and a short explanation. "
+        "Do not rewrite or suggest replacement wording. Do not report anything that is not clearly a violation, and do not "
         "invent text. "
-        'Return {"issues": [{"rule": <number>, "text": "<exact quote>", "problem": "<one short sentence>", '
-        '"suggestion": "<optional better wording>"}]} or {"issues": []}. At most 12 issues.'
+        'Return {"issues": [{"rule": <number>, "text": "<exact quote>", "problem": "<one short sentence>"}]} or {"issues": []}. At most 12 issues.'
     )
     groups: dict[tuple[int, str], dict] = {}
     seen: set[str] = set()
