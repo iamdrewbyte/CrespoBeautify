@@ -22,7 +22,9 @@ HELP = """Steps you can write (one per line):
   toc                                           set the contents page numbers (no Word prompt)
   toc: refresh                                  also ask Word to refresh on open - not recommended: Word then
                                                 evaluates page references before pagination and shows 1 everywhere
-  details: title "Document Details" ; page 4 ; set author = consultant ; row "Author" = consultant
+  details: title "Document Details" ; page 4 ; set author = consultant ; column "Author" = consultant ; column "QA Review" = reviewer
+                                                column = fill the EMPTY cell under that heading in the last row of a version table
+                                                (row "Author" = ... does the same for label | value tables)
   tables: cantsplit on ; header rows 2 ; empty-page-breaks remove ; keep-together 15
   refresh                                       final refresh of title/author/filename and page numbers
   ai: Use a formal, third-person tone.          one house rule per line; the optional AI review checks the report
@@ -144,7 +146,7 @@ def _parse_step(kw: str, rest: str, n: int, enabled: bool):
     if kw in ("refresh", "final"):
         return m.FinalRefreshStep(enabled=enabled)
     if kw == "details":
-        p = m.DocumentDetailsParams(property_mappings={}, cell_mappings=[])
+        p = m.DocumentDetailsParams(property_mappings={}, cell_mappings=[], column_mappings=[])
         for part in _split(rest):
             low = part.lower()
             if low.startswith("title"):
@@ -162,8 +164,13 @@ def _parse_step(kw: str, rest: str, n: int, enabled: bool):
                 if not mt:
                     raise TextError(f'Line {n}: write  row "Author" = consultant')
                 p.cell_mappings.append({"row_label": _unq(mt.group(1)), "field": _field(mt.group(2), n)})
+            elif low.startswith("column"):
+                mt = re.match(rf"^column\s+{_Q}\s*=\s*(\w+)$", part, re.I)
+                if not mt:
+                    raise TextError(f'Line {n}: write  column "Author" = consultant')
+                p.column_mappings.append({"column_label": _unq(mt.group(1)), "field": _field(mt.group(2), n)})
             else:
-                raise TextError(f"Line {n}: unknown part '{part[:30]}'. Parts: title, page, set, row.")
+                raise TextError(f"Line {n}: unknown part '{part[:30]}'. Parts: title, page, set, row, column.")
         return m.DocumentDetailsStep(enabled=enabled, params=p)
     if kw == "tables":
         p = m.TableFixParams()
@@ -203,6 +210,7 @@ def to_text(steps: list) -> str:
             parts = ["title " + " ".join(_q(t) for t in p.matcher_text), f"page {p.fallback_page if p.fallback_page else 'none'}"]
             parts += [f"set {k} = {FIELD_OUT[v]}" for k, v in p.property_mappings.items()]
             parts += [f"row {_q(c['row_label'])} = {FIELD_OUT[c['field']]}" for c in p.cell_mappings]
+            parts += [f"column {_q(c['column_label'])} = {FIELD_OUT[c['field']]}" for c in p.column_mappings]
             body = "details: " + " ; ".join(parts)
         elif isinstance(s, m.TableFixStep):
             parts = [f"cantsplit {'on' if p.cant_split else 'off'}",

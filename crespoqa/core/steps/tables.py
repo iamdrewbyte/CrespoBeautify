@@ -1,6 +1,8 @@
 """Task 3 (Document Details table) and Task 4 (table split fixes)."""
 from __future__ import annotations
 
+import copy
+
 from lxml import etree
 
 from ...templates_store import models as m
@@ -104,15 +106,66 @@ def _set_cell_value(tc, value: str) -> None:
         set_text(etree.SubElement(r, w("t")), value)
 
 
+def _rebalance_two_columns(tbl) -> bool:
+    """A two-column label | value table whose value column was squeezed narrower than the label column: restore 1/3 : 2/3."""
+    grid = tbl.find(w("tblGrid"))
+    cols = list(grid) if grid is not None else []
+    if len(cols) != 2:
+        return False
+    a, b = (int(c.get(w("w"), "0") or 0) for c in cols)
+    if not a or not b or b >= a:
+        return False
+    total = a + b
+    first = round(total * 0.32)
+    widths = (first, total - first)
+    for c, v in zip(cols, widths):
+        c.set(w("w"), str(v))
+    for tr in tbl.findall(w("tr")):
+        tcs = tr.findall(w("tc"))
+        for i, tc in enumerate(tcs):
+            tcw = tc.find(f"{w('tcPr')}/{w('tcW')}")
+            if tcw is None:
+                continue
+            span = tc.find(f"{w('tcPr')}/{w('gridSpan')}")
+            full = span is not None and span.get(w("val")) == "2"
+            if (len(tcs) == 2 and i < 2) or full:
+                tcw.set(w("type"), "dxa"); tcw.set(w("w"), str(total if full else widths[i]))
+    return True
+
+
+def _restore_shrunk_text(tbl) -> int:
+    """Value cells set in a smaller font than their label cell (a common way of squeezing a table): inherit the size again."""
+    n = 0
+    for tr in tbl.findall(w("tr")):
+        tcs = tr.findall(w("tc"))
+        if len(tcs) < 2:
+            continue
+        if any(r.find(f"{w('rPr')}/{w('sz')}") is not None for r in tcs[0].iter(w("r"))):
+            continue
+        for tc in tcs[1:]:
+            for r in tc.iter(w("r")):
+                rpr = r.find(w("rPr"))
+                if rpr is None:
+                    continue
+                for tag in ("sz", "szCs"):
+                    for el in rpr.findall(w(tag)):
+                        rpr.remove(el); n += 1
+    return n
+
+
 def expand_layout(tbl) -> dict[str, int]:
-    stats = {"rows": 0, "tables": 0, "fit_text_removed": 0}
+    stats = {"rows": 0, "tables": 0, "fit_text_removed": 0, "columns_rebalanced": 0, "text_size_restored": 0}
+    stats["columns_rebalanced"] = int(_rebalance_two_columns(tbl))
+    stats["text_size_restored"] = _restore_shrunk_text(tbl)
     for t in [tbl, *tbl.iterdescendants(w("tbl"))]:
         stats["tables"] += 1
         tblpr = _ensure_tblpr(t)
         layout = _ensure(tblpr, "tblLayout", _TBLPR_ORDER)
         layout.set(w("type"), "autofit")
         tw = _ensure(tblpr, "tblW", _TBLPR_ORDER)
-        if tw.get(w("type")) != "pct":
+        if t is tbl:                                  # the details table itself always spans the full width
+            tw.set(w("type"), "pct"); tw.set(w("w"), "5000")
+        elif tw.get(w("type")) != "pct":
             tw.set(w("type"), "pct"); tw.set(w("w"), "5000")
         if tblpr.find(w("tblCellMar")) is None:
             mar = _ensure(tblpr, "tblCellMar", _TBLPR_ORDER)
@@ -155,10 +208,11 @@ def document_details(ctx: Ctx, params: m.DocumentDetailsParams) -> TaskResult:
     ctx.mark("Document Details table updated and formatted", tbl)
     if how == "title match" and params.fallback_page:
         body = ctx.pkg.document.find(w("body"))
-        pages = element_pages(body)
-        if pages.get(tbl) != params.fallback_page and any(
-                pages.get(t) == params.fallback_page for t in body.iter(w("tbl"))):
-            res.changes.append(f"Note: the matched table is on page {pages.get(tbl)}, the template expected page {params.fallback_page}")
+        from ..locate import _Finder, _el_anchor
+        fin = _Finder(ctx.page_texts, body)            # rendered page when LibreOffice is available, else Word's markers
+        here = fin.find(_el_anchor(tbl), tbl)
+        if here is not None and here != params.fallback_page:
+            res.changes.append(f"Note: the matched table is on page {here}, the template expected page {params.fallback_page}")
     for cm in params.cell_mappings:
         label = cm.get("row_label", "").strip().rstrip(":").lower()
         val = ctx.form.value(cm.get("field", "")).strip()
@@ -175,8 +229,75 @@ def document_details(ctx: Ctx, params: m.DocumentDetailsParams) -> TaskResult:
     st = expand_layout(tbl)
     ctx.pkg.touch("word/document.xml")
     res.counts.update(st)
-    res.changes.append(f"Cleared {st['rows']} fixed row height(s), enabled auto-fit, removed {st['fit_text_removed']} text-compression setting(s)")
+    res.changes.append(f"Cleared {st['rows']} fixed row height(s), enabled auto-fit at full width, removed {st['fit_text_removed']} text-compression setting(s)")
+    if st["columns_rebalanced"]:
+        res.changes.append("Widened the squeezed value column of the Document Details table (about 1/3 label, 2/3 value)")
+    if st["text_size_restored"]:
+        res.changes.append(f"Restored normal text size in {st['text_size_restored']} shrunk setting(s) of the Document Details table")
+    _fill_columns(ctx, params, tbl, res)
     return res
+
+
+def _version_tables(tbl) -> list:
+    root = tbl
+    for a in tbl.iterancestors(w("tbl")):
+        root = a                                       # outermost box that holds the details block
+    found = list(root.iter(w("tbl")))
+    nxt = root.getnext()
+    for _ in range(3):
+        if nxt is None:
+            break
+        if nxt.tag == w("tbl"):
+            found.append(nxt)
+        nxt = nxt.getnext()
+    return found
+
+
+def _fill_empty_cell(tc, value: str, like) -> None:
+    p = next(iter(_own_paragraphs(tc)), None)
+    if p is None:
+        p = etree.SubElement(tc, w("p"))
+    for r in [c for c in p if c.tag == w("r") and not para_text(p).strip()]:
+        p.remove(r)
+    r = etree.SubElement(p, w("r"))
+    if like is not None:
+        r.append(copy.deepcopy(like))
+    t = etree.SubElement(r, w("t"))
+    set_text(t, value)
+
+
+def _fill_columns(ctx: Ctx, params: m.DocumentDetailsParams, tbl, res: TaskResult) -> None:
+    """Version-history tables: fill the empty cell under 'Author' / 'QA Review' in the latest row. Never overwrites text."""
+    if not params.column_mappings:
+        return
+    done: set = set()
+    for cand in _version_tables(tbl):
+        rows = cand.findall(w("tr"))
+        if len(rows) < 2:
+            continue
+        head = [_cell_text(tc).strip().rstrip(":").casefold() for tc in rows[0].findall(w("tc"))]
+        last = rows[-1].findall(w("tc"))
+        like = next((r.find(w("rPr")) for tr in rows[1:] for tc in tr.findall(w("tc")) for r in tc.iter(w("r"))
+                     if r.find(w("rPr")) is not None and any((t.text or "").strip() for t in r.iter(w("t")))), None)
+        for cm in params.column_mappings:
+            label = cm.get("column_label", "").strip().rstrip(":").casefold()
+            if label not in head or len(last) != len(head) or (cand, label) in done:
+                continue
+            done.add((cand, label))
+            cell = last[head.index(label)]
+            value = ctx.form.value(cm.get("field", "")).strip()
+            existing = _cell_text(cell).strip()
+            if not value:
+                continue
+            if not existing:
+                _fill_empty_cell(cell, value, like)
+                ctx.pkg.touch("word/document.xml")
+                ctx.mark(f"Version table: '{cm['column_label']}' filled in the latest row", cand)
+                res.changes.append(f"Filled the empty '{cm['column_label']}' cell in the latest row of the version table from {cm['field']}")
+            elif existing.casefold() != value.casefold():
+                ctx.mark(f"Version table: '{cm['column_label']}' in the latest row already has text (left as is)", cand)
+                res.warnings.append(f"The '{cm['column_label']}' cell in the latest version row already contains text; it was left as it is. Check it by hand.")
+                res.status = "warning"
 
 
 # ---- Task 4 ----------------------------------------------------------------
