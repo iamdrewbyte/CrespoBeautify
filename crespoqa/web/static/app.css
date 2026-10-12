@@ -69,3 +69,6 @@ ol.steps>li.pending{color:var(--muted)}ol.steps>li.running{color:var(--accent)}o
 .stepline{gap:0}
 
 .saved{margin:0 0 12px;color:var(--ok);font-size:14px}.saved .alert{color:#ffd5d5}
+.where{margin-top:12px;padding-top:10px;border-top:1px solid var(--line, #2a303c)}
+.where h3{margin:0 0 4px;font-size:14px}
+.where .det strong{color:var(--text, #e6e9ef)}

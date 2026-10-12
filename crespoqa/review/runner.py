@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Callable
 
 from ..core.context import RunForm
+from ..core.locate import pages_with
 from .checks import (check_details_table, check_placeholders, check_rules, check_typos, compare_facts,
                      extract_counts, extract_facts)
 from .extract import ExtractedDoc
@@ -12,7 +13,8 @@ from .models import Finding, ReviewState
 
 
 def run_review(docs: dict[str, ExtractedDoc], form: RunForm, llm: LLM | None, state: ReviewState, *,
-               chunk_chars: int = 12000, max_chunks: int = 30, progress: Callable[[str], None] | None = None) -> ReviewState:
+               chunk_chars: int = 12000, max_chunks: int = 30, progress: Callable[[str], None] | None = None,
+               page_texts: dict[str, list[str]] | None = None) -> ReviewState:
     """`llm=None` runs only the deterministic checks."""
     raw: list[dict] = []
 
@@ -50,4 +52,6 @@ def run_review(docs: dict[str, ExtractedDoc], form: RunForm, llm: LLM | None, st
                 raw += check_rules(llm, doc, chunked[rtype], state.notes)
 
     state.findings = [Finding(id=f"f{i}", **r) for i, r in enumerate(raw, 1)]
+    for f in state.findings:                            # which page(s) to look at; empty when unknown
+        f.pages = pages_with((page_texts or {}).get(f.doc), f.evidence)
     return state

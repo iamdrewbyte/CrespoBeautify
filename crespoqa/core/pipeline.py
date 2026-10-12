@@ -14,7 +14,8 @@ from .context import Ctx, RunForm
 from .docx_validate import InvalidDocx, validate_docx
 from .logging_setup import JobLogger
 from .package import DocxPackage
-from .pagenum import contents_labels, pages_from_layout, refresh_page_numbers
+from .locate import locate
+from .pagenum import _plan_contents, contents_labels, pages_from_layout, refresh_page_numbers
 from .pages import find_soffice, render_page_texts
 from .steps import fields_steps, tables, text
 from .xmlutil import w
@@ -45,18 +46,33 @@ def plan_for(template: m.Template) -> list[dict]:
     return [{"key": s.type, "label": STEP_LABELS[s.type]} for s in template.steps if s.enabled and s.type in RUNNERS]
 
 
-def _apply_page_numbers(ctx, pkg, work, use_layout, settings, log) -> TaskResult:
-    """Render the already-edited document and write the section page numbers into the contents."""
-    res = TaskResult("page_numbers", "Contents page numbers")
-    layout = None
+def _final_layout(ctx, pkg, work, use_layout, settings):
+    """Page texts of the finished (edited) document, rendered once and shared by the page numbers and the locations."""
+    if "layout_texts" in ctx.extras:
+        return ctx.extras["layout_texts"]
+    texts = None
     soffice = find_soffice(settings.soffice) if use_layout else None
     if soffice:
         tmp = work / "layout_probe.docx"
         pkg.save(tmp)
-        texts = render_page_texts(tmp, soffice, min(settings.doc_timeout_s, 120))
-        if texts:
-            layout = pages_from_layout(pkg, texts, contents_labels(pkg))
+        texts = render_page_texts(tmp, soffice, min(settings.doc_timeout_s, 120)) or None
+    ctx.extras["layout_texts"] = texts
+    return texts
+
+
+def _apply_page_numbers(ctx, pkg, work, use_layout, settings, log) -> TaskResult:
+    """Render the already-edited document and write the section page numbers into the contents."""
+    res = TaskResult("page_numbers", "Contents page numbers")
+    layout = None
+    texts = _final_layout(ctx, pkg, work, use_layout, settings)
+    if texts:
+        layout = pages_from_layout(pkg, texts, contents_labels(pkg))
     st = refresh_page_numbers(pkg, layout)
+    if st.contents_tables:
+        for plan in _plan_contents(pkg.document.find(w("body"))):
+            tbl = next(plan["cells"][0].iterancestors(w("tbl")), None) if plan["cells"] else None
+            if tbl is not None:
+                ctx.mark(f"Contents page numbers set ({len(plan['names'])} entries)", tbl)
     res.counts.update(source=0, set=st.contents_cells + st.updated)
     if st.source == "layout":
         res.changes.append(f"Page numbers read from a rendered layout of the finished document ({len(layout)} section(s) placed)")
@@ -95,6 +111,7 @@ def process_document(
     use_layout: bool = True,
     job_id: str | None = None,
     progress=None,  # callable(step_key, state) for live UI; state: running|ok|warning|failed
+    layout_out: list | None = None,  # receives the rendered page texts (memory only) so reviews can name pages
 ) -> DocReport:
     settings = settings or load_settings()
     job_id = job_id or uuid.uuid4().hex[:8]
@@ -152,6 +169,15 @@ def process_document(
 
         if ctx.extras.get("want_page_numbers"):
             report.tasks.append(_apply_page_numbers(ctx, pkg, work, use_layout, settings, log))
+
+        # Where to check by hand: pages of everything the tool touched, and tables still crossing a page break
+        try:
+            texts = _final_layout(ctx, pkg, work, use_layout, settings)
+            report.locations = locate(pkg.document.find(w("body")), ctx.marks, texts)
+            if layout_out is not None and texts:
+                layout_out.extend(texts)
+        except Exception as exc:              # a helper list must never fail the document
+            log.warning(f"Could not work out page locations ({type(exc).__name__})")
 
         # Stage C: save
         if not dry_run:

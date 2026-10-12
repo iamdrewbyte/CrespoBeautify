@@ -1,4 +1,5 @@
-"""Change report. Holds only tool-authored labels and counts, never report content."""
+"""Change report. Holds tool-authored labels and counts. `locations` also carries the opening words of a table or
+paragraph so a person can find it; it is shown to the user only and never written to logs."""
 from __future__ import annotations
 
 import html
@@ -30,6 +31,7 @@ class DocReport:
     output_name: str | None = None
     duration_s: float = 0.0
     tasks: list[TaskResult] = field(default_factory=list)
+    locations: list[dict] = field(default_factory=list)   # where to check by hand: page, what, opening words (display only)
 
     def finalize(self) -> None:
         if self.error:

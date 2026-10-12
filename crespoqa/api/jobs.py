@@ -35,6 +35,7 @@ class Job:
     ai_review: bool = False
     review: ReviewState | None = None
     review_docs: dict | None = None  # extracted text held in memory only until the review ends
+    layout_texts: dict | None = None  # rendered page text per report type, memory only, to name pages in review flags
     created: float = field(default_factory=time.time)
     status: str = "queued"  # queued | running | done
     plan: dict[str, list[dict]] = field(default_factory=dict)  # input name -> steps
@@ -61,7 +62,7 @@ class Job:
             "reports": [
                 {"index": i, "input_name": r.input_name, "report_type": r.report_type, "status": r.status,
                  "error": r.error, "template": r.template, "template_version": r.template_version,
-                 "output_name": r.output_name, "tasks": [
+                 "output_name": r.output_name, "locations": r.locations, "tasks": [
                      {"key": t.key, "title": t.title, "status": t.status, "changes": t.changes, "warnings": t.warnings}
                      for t in r.tasks]}
                 for i, r in enumerate(self.reports)],
@@ -169,8 +170,11 @@ class JobManager:
             def progress(key: str, state: str, _n=name):
                 job.emit(type="step", doc=_n, key=key, state=state)
 
+            texts: list[str] = []
             report = process_document(path, out_dir, template, job.form, settings=self.settings,
-                                      dry_run=job.dry_run, job_id=job.id[:8], progress=progress)
+                                      dry_run=job.dry_run, job_id=job.id[:8], progress=progress, layout_out=texts)
+            if job.ai_review and texts:
+                job.layout_texts = (job.layout_texts or {}) | {rtype: texts}
             report.input_name = name
             job.reports.append(report)
             if report.output_name and not report.error:
@@ -232,7 +236,8 @@ class JobManager:
             job.review.status = "running"
             try:
                 run_review(job.review_docs, job.form, self.llm, job.review,
-                           chunk_chars=self.settings.ai_chunk_chars, max_chunks=self.settings.ai_max_chunks)
+                           chunk_chars=self.settings.ai_chunk_chars, max_chunks=self.settings.ai_max_chunks,
+                           page_texts=job.layout_texts)
                 job.review.status, job.review.progress = "done", ""
                 log.info(f"[job {job.id[:8]}] review done: {len(job.review.findings)} finding(s)")
             except ReviewError as exc:
@@ -243,6 +248,7 @@ class JobManager:
                 log.exception(f"[job {job.id[:8]}] review crashed")
             finally:
                 job.review_docs = None                     # drop extracted report text
+                job.layout_texts = None
 
     def _sweeper(self) -> None:
         while not self._stop.wait(60):

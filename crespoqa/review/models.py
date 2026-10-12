@@ -15,6 +15,7 @@ class Finding:
     message: str
     evidence: str = ""  # short verbatim excerpt (<=160 chars) so a human can locate the issue
     suggestion: str = ""
+    pages: list = field(default_factory=list)  # pages where the quoted text appears (if known)
     decision: str = "open"  # open | accepted | ignored  (never changes the document)
 
     def to_dict(self) -> dict:

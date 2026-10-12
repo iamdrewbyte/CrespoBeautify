@@ -106,7 +106,19 @@
         }
         ol.append(li);
       });
-      card.append(ol); docsBox.append(card);
+      card.append(ol);
+      if ((rep.locations || []).length) {
+        const box = el("div", "where"); box.append(el("h3", null, "Where to check by hand"));
+        const ul = el("ul", "det");
+        rep.locations.forEach(L => {
+          const place = L.where ? L.where : L.page ? `Page ${L.page}${L.approx ? " (approx.)" : ""}` : "Page not found";
+          const li = el("li"); li.append(el("strong", null, place + ": "),
+            document.createTextNode(L.what + (L.count > 1 ? ` (${L.count}x)` : "") + (L.hint ? `  [${L.hint}…]` : "")));
+          ul.append(li);
+        });
+        box.append(ul); card.append(box);
+      }
+      docsBox.append(card);
     });
     const sv = $("#saved"); sv.replaceChildren(); sv.hidden = !(snap.saved && snap.saved.length);
     (snap.saved || []).forEach(x => sv.append(el("div", x.ok ? "" : "alert",
@@ -136,7 +148,7 @@
       if (rv.status === "done" && !rv.findings.length) ul.append(el("li", null, "No issues flagged."));
       rv.findings.forEach(f => {
         const li = el("li", "finding " + f.decision);
-        const head = el("div", "fhead"); head.append(el("strong", null, `${f.check.replace("_", " ")} (${f.doc})`), el("span", null, f.message));
+        const head = el("div", "fhead"); head.append(el("strong", null, `${f.check.replace("_", " ")} (${f.doc})${f.pages && f.pages.length ? ", page " + f.pages.join(", ") : ""}`), el("span", null, f.message));
         li.append(head);
         if (f.evidence) li.append(el("div", "ev", f.evidence));
         if (f.suggestion) li.append(el("div", "sug", "Suggestion: " + f.suggestion));

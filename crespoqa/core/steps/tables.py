@@ -152,6 +152,7 @@ def document_details(ctx: Ctx, params: m.DocumentDetailsParams) -> TaskResult:
         res.warnings.append("Document Details table not found (title match and page fallback both failed).")
         return res
     res.changes.append(f"Document Details table found via {how}")
+    ctx.mark("Document Details table updated and formatted", tbl)
     if how == "title match" and params.fallback_page:
         body = ctx.pkg.document.find(w("body"))
         pages = element_pages(body)
@@ -226,7 +227,7 @@ def _keep_next(p) -> bool:
     return True
 
 
-def keep_tables_together(root, max_rows: int) -> tuple[int, int]:
+def keep_tables_together(root, max_rows: int, collect: list | None = None) -> tuple[int, int]:
     """Top-level tables of 2..max_rows rows with no nested tables: keep every row with the next, plus the
     paragraph that introduces the table. Word then moves the whole table to the next page when it won't fit."""
     tables = intro = 0
@@ -245,6 +246,8 @@ def keep_tables_together(root, max_rows: int) -> tuple[int, int]:
                 intro += 1
                 changed = True
         tables += changed
+        if changed and collect is not None:
+            collect.append(tbl)
     return tables, intro
 
 
@@ -282,9 +285,15 @@ def table_fix(ctx: Ctx, params: m.TableFixParams) -> TaskResult:
                     for r in [c for c in p if c.tag == w("r")]:
                         p.remove(r)
                 breaks += n
+                tbl_up = next(tc.iterancestors(w("tbl")), None)
+                if tbl_up is not None:
+                    ctx.mark("Empty page break removed inside a table cell", tbl_up)
     kept = intro = 0
     if params.keep_together_max_rows:
-        kept, intro = keep_tables_together(root, params.keep_together_max_rows)
+        moved: list = []
+        kept, intro = keep_tables_together(root, params.keep_together_max_rows, moved)
+        for t in moved:
+            ctx.mark("Table kept together on one page", t)
     if added or headers_added or breaks or kept:
         ctx.pkg.touch("word/document.xml")
     res.counts.update(tables=len(tables), cant_split_added=added, cant_split_existing=existing,

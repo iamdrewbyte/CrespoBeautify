@@ -28,3 +28,8 @@ class Ctx:
     dry_run: bool = False
     page_texts: list[str] | None = None  # rendered page text (read-only cross-check), if available
     extras: dict = field(default_factory=dict)
+    marks: list = field(default_factory=list)      # where the tool acted (see locate.py)
+
+    def mark(self, what: str, el=None, *, page: int | None = None, where: str = "") -> None:
+        from .locate import Mark
+        self.marks.append(Mark(what, el, page, where))

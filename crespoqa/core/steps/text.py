@@ -47,7 +47,7 @@ def _page1_roots(ctx: Ctx) -> list[tuple[str, etree._Element]]:
     return roots
 
 
-def _replace_in(ctx: Ctx, roots, find: str, replace: str, strip_space: bool) -> int:
+def _replace_in(ctx: Ctx, roots, find: str, replace: str, strip_space: bool, mark: str = "", fixed_page: int | None = None) -> int:
     n = 0
     for part, root in roots:
         for p in _paragraphs(root):
@@ -55,6 +55,13 @@ def _replace_in(ctx: Ctx, roots, find: str, replace: str, strip_space: bool) -> 
             if c:
                 ctx.pkg.touch(part)
                 n += c
+                if mark:
+                    if fixed_page:
+                        ctx.mark(mark, page=fixed_page)
+                    elif part == "word/document.xml":
+                        ctx.mark(mark, p)
+                    else:
+                        ctx.mark(mark, where="headers / footers (every page)")
     return n
 
 
@@ -72,7 +79,8 @@ def period_removal(ctx: Ctx, params: m.PeriodRemovalParams) -> TaskResult:
     total = 0
     roots = _page1_roots(ctx)
     for label in params.labels:
-        total += _replace_in(ctx, roots, label, ctx.form.period.strip() if fill else "", strip_space=not fill)
+        total += _replace_in(ctx, roots, label, ctx.form.period.strip() if fill else "", strip_space=not fill,
+                             mark=f"'{label}' label {'filled' if fill else 'removed'}", fixed_page=1)
         if ctx.page_texts and total == 0 and _norm(label) in _norm(ctx.page_texts[0]):
             res.warnings.append(f"Layout check sees '{label}' on page 1 but it was not found in the page-1 XML scope (text box, field or unusual structure?).")
     verb = "Replaced" if fill else "Removed"
@@ -99,6 +107,10 @@ def placeholders(ctx: Ctx, params: m.PlaceholdersParams) -> TaskResult:
                     found += c
                     if value:
                         ctx.pkg.touch(part)
+                        if part == "word/document.xml":
+                            ctx.mark(f"Placeholder {mp.token} filled", p)
+                        else:
+                            ctx.mark(f"Placeholder {mp.token} filled", where="headers / footers (every page)")
         if found and not value:
             res.warnings.append(f"Placeholder '{mp.token}' found {found}x but no {mp.field} value was supplied.")
             res.status = "warning"
@@ -119,7 +131,7 @@ def find_replace(ctx: Ctx, params: m.FindReplaceParams) -> TaskResult:
     res = TaskResult("find_replace", "Custom find/replace")
     for rule in params.rules:
         roots = _page1_roots(ctx) if rule.scope == "page1" else [(p, ctx.pkg.xml(p)) for p in ctx.pkg.story_parts()]
-        n = _replace_in(ctx, roots, rule.find, rule.replace, strip_space=False)
+        n = _replace_in(ctx, roots, rule.find, rule.replace, strip_space=False, mark=f"Find/replace '{rule.find}'")
         res.counts[rule.find] = n
         res.changes.append(f"Rule '{rule.find}' ({rule.scope}): {n} replacement(s)")
     if not params.rules:
