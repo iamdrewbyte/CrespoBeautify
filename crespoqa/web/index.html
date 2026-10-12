@@ -13,62 +13,74 @@
 </header>
 <main>
   <section id="form-view" aria-labelledby="h-run">
-    <h1 id="h-run">Run QA</h1>
-    <p class="muted">Upload the Technical and Executive reports. Files are processed, offered for download, then deleted. Nothing is kept.</p>
+    <div class="titlerow"><h1 id="h-run">Run QA</h1>
+      <p class="muted">Upload the Technical and Executive reports. Files are processed, offered for download, then deleted.</p></div>
     <div id="error" class="alert" role="alert" hidden></div>
     <form id="qa-form" novalidate>
-      <div class="grid">
-        <label>Service
-          <select id="service" name="service" required></select>
-        </label>
-        <label>Consultant full name
-          <input id="consultant" name="consultant" type="text" maxlength="200" autocomplete="name" required>
-        </label>
-        <label>Reviewer full name <span class="opt">optional</span>
-          <input name="reviewer" type="text" maxlength="200">
-        </label>
-        <label>Client name <span class="opt">optional</span>
-          <input name="client" type="text" maxlength="200">
-        </label>
-        <label>Report date <span class="opt">optional</span>
-          <input name="report_date" type="text" maxlength="200" placeholder="e.g. 9 October 2026">
-        </label>
-        <label>Engagement period <span class="opt">optional</span>
-          <input name="period" type="text" maxlength="200">
-        </label>
-      </div>
-      <div class="drops">
-        <div class="drop" data-for="technical" tabindex="0" role="button" aria-label="Technical report: choose or drop a .docx file">
-          <strong>Technical Report</strong><span class="hint">Drop .docx here or press Enter to browse</span>
-          <span class="fname" aria-live="polite"></span>
-          <input type="file" name="technical" accept=".docx" required tabindex="-1">
+      <div class="form-layout">
+        <div class="box">
+          <h2>Report details</h2>
+          <div class="grid">
+            <label>Service
+              <select id="service" name="service" required></select>
+            </label>
+            <label>Consultant full name
+              <input id="consultant" name="consultant" type="text" maxlength="200" autocomplete="name" required>
+            </label>
+            <label>Reviewer full name <span class="opt">optional</span>
+              <input name="reviewer" type="text" maxlength="200">
+            </label>
+            <label>Client name <span class="opt">optional</span>
+              <input name="client" type="text" maxlength="200">
+            </label>
+            <label>Report date <span class="opt">optional</span>
+              <input name="report_date" type="text" maxlength="200" placeholder="e.g. 9 October 2026">
+            </label>
+            <label>Engagement period <span class="opt">optional</span>
+              <input name="period" type="text" maxlength="200">
+            </label>
+          </div>
         </div>
-        <div class="drop" data-for="executive" tabindex="0" role="button" aria-label="Executive report: choose or drop a .docx file">
-          <strong>Executive Report</strong><span class="hint">Drop .docx here or press Enter to browse</span>
-          <span class="fname" aria-live="polite"></span>
-          <input type="file" name="executive" accept=".docx" required tabindex="-1">
+        <div class="box">
+          <h2>Reports</h2>
+          <div class="drops">
+            <div class="drop" data-for="technical" tabindex="0" role="button" aria-label="Technical report: choose or drop a .docx file">
+              <strong>Technical Report</strong><span class="hint">Drop .docx here or click to browse</span>
+              <span class="fname" aria-live="polite"></span>
+              <input type="file" name="technical" accept=".docx" required tabindex="-1">
+            </div>
+            <div class="drop" data-for="executive" tabindex="0" role="button" aria-label="Executive report: choose or drop a .docx file">
+              <strong>Executive Report</strong><span class="hint">Drop .docx here or click to browse</span>
+              <span class="fname" aria-live="polite"></span>
+              <input type="file" name="executive" accept=".docx" required tabindex="-1">
+            </div>
+          </div>
+          <label class="check" id="ai-wrap" hidden><input type="checkbox" id="ai_review"> AI review (local model): flags leftovers, mismatches and typos. It only flags; nothing is edited.</label>
+          <label class="check"><input type="checkbox" name="dry_run" id="dry_run"> Dry run: show what would change, produce no files</label>
+          <button id="submit" class="primary wide-btn" type="submit">Run QA</button>
         </div>
       </div>
-      <label class="check" id="ai-wrap" hidden><input type="checkbox" id="ai_review"> AI review (local model): flags leftover placeholders, mismatches between the reports and typos. It only suggests; nothing is edited.</label>
-      <label class="check"><input type="checkbox" name="dry_run" id="dry_run"> Dry run: show what would change, produce no files</label>
-      <button id="submit" class="primary" type="submit">Run QA</button>
     </form>
   </section>
 
   <section id="result-view" hidden aria-live="polite">
     <div class="tools">
       <h1 id="h-result">Processing</h1>
-      <div id="downloads" class="actions" hidden></div>
+      <div id="saved" class="saved" hidden></div>
+      <div class="actions">
+        <div id="downloads" class="actions" hidden></div>
+        <button id="again" class="ghost" type="button" hidden>Run another</button>
+      </div>
     </div>
-    <div id="saved" class="saved" hidden></div>
-    <div id="docs" class="split2"></div>
-    <section id="review" class="box" hidden aria-labelledby="h-review">
-      <h2 id="h-review">AI review</h2>
-      <p id="review-progress" class="muted" role="status"></p>
-      <div id="review-notes" class="muted"></div>
-      <ul id="findings" class="findings two-col"></ul>
-    </section>
-    <p><button id="again" class="ghost" type="button" hidden>Run another</button></p>
+    <div id="rgrid" class="rgrid">
+      <div id="docs" class="docs"></div>
+      <section id="review" class="box pane" hidden aria-labelledby="h-review">
+        <h2 id="h-review">AI review</h2>
+        <p id="review-progress" class="muted" role="status"></p>
+        <div id="review-notes" class="muted"></div>
+        <ul id="findings" class="findings"></ul>
+      </section>
+    </div>
   </section>
 </main>
 <script src="/static/common.js"></script>

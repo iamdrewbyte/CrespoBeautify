@@ -55,12 +55,12 @@
   $("#again").addEventListener("click", () => location.reload());
 
   function track(jobId, dry) {
-    $("#form-view").hidden = true; $("#result-view").hidden = false;
+    $("#form-view").hidden = true; $("#result-view").hidden = false; document.body.classList.add("results");
     $("#h-result").textContent = dry ? "Dry run in progress" : "Processing";
     const docsBox = $("#docs"), rows = {};
     CQ.call(`/api/jobs/${jobId}`).then(snap => {
       Object.entries(snap.plan).forEach(([name, steps]) => {
-        const card = el("div", "box"), h = el("h2", "dochead"); h.append(el("span", null, name));
+        const card = el("div", "box pane"), h = el("h2", "dochead"); h.append(el("span", null, name));
         const ol = el("ol", "steps"); rows[name] = { steps: {} };
         steps.forEach(s => { const li = el("li", "pending"); li.append(el("span", null, s.label));
           ol.append(li); rows[name].steps[s.key] = { li }; });
@@ -87,36 +87,36 @@
     $("#h-result").textContent = dry ? "Dry run complete" : "Done";
     docsBox.replaceChildren();
     snap.reports.forEach(rep => {
-      const card = el("div", "box"), h = el("h2", "dochead");
-      h.append(el("span", null, `${rep.report_type === "technical" ? "Technical" : "Executive"}: ${rep.input_name}`));
+      const card = el("div", "box pane"), h = el("div", "dochead");
+      const nm = el("span", "dname", rep.input_name); nm.title = rep.input_name;
+      h.append(el("span", "kicker", rep.report_type === "technical" ? "Technical" : "Executive"), nm);
       card.append(h);
       if (rep.error) card.append(el("div", "alert", rep.error));
       const ol = el("ol", "steps");
       rep.tasks.filter(t => t.key !== "prechecks" || t.warnings.length).forEach(t => {
-        const li = el("li"), line = el("div", "stepline");
-        line.append(el("span", null, t.title));
-        li.append(line);
-        const items = [...t.changes.map(c => ["", c]), ...t.warnings.map(w => ["w", "Warning: " + w])];
+        const li = el("li"), items = [...t.changes.map(c => ["", c]), ...t.warnings.map(w => ["w", "Warning: " + w])];
+        const warn = t.warnings.length > 0;
+        const count = warn ? `${t.warnings.length} to check` : t.changes.length === 1 && /^No |nothing/i.test(t.changes[0]) ? "no change" : `${t.changes.length} change${t.changes.length === 1 ? "" : "s"}`;
         if (items.length) {
-          const warn = t.warnings.length > 0;
           const d = el("details"); d.open = warn;
-          d.append(el("summary", null, warn ? `${t.warnings.length} warning(s), ${t.changes.length} change(s)` : `${t.changes.length} change(s)`));
-          const ul = el("ul", "det"); items.forEach(([c, txt]) => ul.append(el("li", c, txt))); d.append(ul);
-          li.append(d);
-        }
+          const s = el("summary"); s.append(el("span", "t", t.title), el("span", warn ? "c warnc" : "c", count));
+          const ul = el("ul", "det"); items.forEach(([c, txt]) => ul.append(el("li", c, txt)));
+          d.append(s, ul); li.append(d);
+        } else { const r = el("div", "row"); r.append(el("span", "t", t.title)); li.append(r); }
         ol.append(li);
       });
       card.append(ol);
       if ((rep.locations || []).length) {
         const box = el("div", "where"); box.append(el("h3", null, "Where to check by hand"));
-        const ul = el("ul", "det");
+        const tb = el("div", "wtable");
         rep.locations.forEach(L => {
-          const place = L.where ? L.where : L.page ? `Page ${L.page}${L.approx ? " (approx.)" : ""}` : "Page not found";
-          const li = el("li"); li.append(el("strong", null, place + ": "),
-            document.createTextNode(L.what + (L.count > 1 ? ` (${L.count}x)` : "") + (L.hint ? `  [${L.hint}…]` : "")));
-          ul.append(li);
+          const place = L.where ? L.where : L.page ? `p. ${L.page}${L.approx ? " ≈" : ""}` : "?";
+          const row = el("div", "wrow"); row.append(el("span", "wp", place));
+          const tx = el("span", "wt", L.what + (L.count > 1 ? ` (${L.count}x)` : ""));
+          if (L.hint) tx.append(el("em", null, `  ${L.hint}…`));
+          row.append(tx); tb.append(row);
         });
-        box.append(ul); card.append(box);
+        box.append(tb); card.append(box);
       }
       docsBox.append(card);
     });
