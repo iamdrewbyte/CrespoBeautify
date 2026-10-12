@@ -71,6 +71,10 @@ if [ "$WITH_AI" = 1 ]; then
   echo "4/4 Installing Ollama and the model ($MODEL) on the server ..."
   ssh -t "$TARGET" "set -e
     command -v ollama >/dev/null || curl -fsSL https://ollama.com/install.sh | sh
+    # Ollama otherwise keeps a background connection to ollama.com; switch that off so the model server is fully local
+    sudo mkdir -p /etc/systemd/system/ollama.service.d
+    printf '[Service]\\nEnvironment=\"OLLAMA_NO_CLOUD=1\"\\n' | sudo tee /etc/systemd/system/ollama.service.d/nocloud.conf >/dev/null
+    sudo systemctl daemon-reload && sudo systemctl restart ollama
     ollama pull '$MODEL'
     sudo sed -i 's|^AI_ENABLED=.*|AI_ENABLED=true|; s|^AI_MODEL=.*|AI_MODEL=$MODEL|' /etc/crespoqa/crespoqa.env
     sudo systemctl restart crespoqa && echo 'AI review enabled'"

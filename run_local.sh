@@ -7,7 +7,8 @@ export PATH="$HOME/.local/ollama/bin:$PATH"
 if command -v ollama >/dev/null 2>&1; then
   if ! curl -fs -m 2 http://127.0.0.1:11434/api/version >/dev/null; then
     echo "Starting Ollama..."
-    nohup ollama serve > /tmp/ollama.log 2>&1 &
+    # OLLAMA_NO_CLOUD=1: Ollama otherwise keeps a background connection to ollama.com. With it set, the model server makes none.
+    OLLAMA_NO_CLOUD=1 nohup ollama serve > /tmp/ollama.log 2>&1 &
     for _ in $(seq 1 20); do curl -fs -m 1 http://127.0.0.1:11434/api/version >/dev/null && break; sleep 1; done
   fi
   echo "Ollama models: $(ollama list | tail -n +2 | awk '{print $1}' | tr '\n' ' ')"

@@ -1,13 +1,42 @@
 # One command: ./start.sh   (or:  docker compose up -d --build)
-# Three containers: the app, the AI model server (Ollama), and a one-shot job that downloads the model (~4.7 GB, first run only).
+#
+# Four moving parts, in this order:
+#   model-pull : downloads the AI model once (needs internet), then exits
+#   ollama     : serves the model. It is on a network with NO route to the internet, and Ollama's own cloud link is off
+#   app        : the web app. Talks to ollama over that private network
 name: crespoqa
 
+networks:
+  # internal: true = containers on it cannot reach the internet or the host's network, only each other
+  private-ai:
+    internal: true
+
 services:
+  model-pull:
+    image: ollama/ollama:latest
+    environment:
+      MODEL: ${AI_MODEL:-qwen2.5:7b-instruct}
+    volumes:
+      - ollama:/root/.ollama
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        ollama serve >/dev/null 2>&1 &
+        for i in $$(seq 1 60); do ollama list >/dev/null 2>&1 && break; sleep 1; done
+        if ollama list | grep -q "^$$MODEL"; then echo "model $$MODEL already present"; else ollama pull "$$MODEL"; fi
+    restart: "no"
+
   ollama:
     image: ollama/ollama:latest
     restart: unless-stopped
+    depends_on:
+      model-pull:
+        condition: service_completed_successfully
+    environment:
+      OLLAMA_NO_CLOUD: "1"        # without this Ollama keeps a background connection to ollama.com
     volumes:
       - ollama:/root/.ollama
+    networks: [private-ai]        # no internet, and no published port: only the app can reach it
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 10s
@@ -22,28 +51,16 @@ services:
     #           count: all
     #           capabilities: [gpu]
 
-  model-pull:
-    image: ollama/ollama:latest
-    depends_on:
-      ollama:
-        condition: service_healthy
-    environment:
-      OLLAMA_HOST: http://ollama:11434
-      MODEL: ${AI_MODEL:-qwen2.5:7b-instruct}
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - 'ollama list | grep -q "^$$MODEL" && echo "model $$MODEL already present" || ollama pull "$$MODEL"'
-    restart: "no"
-
   app:
     build: .
     image: crespoqa:latest
     restart: unless-stopped
     depends_on:
-      model-pull:
-        condition: service_completed_successfully
+      ollama:
+        condition: service_healthy
     ports:
       - "${CRESPOQA_PUBLISH:-127.0.0.1}:${CRESPOQA_PORT:-8000}:8000"
+    networks: [default, private-ai]
     environment:
       CRESPOQA_AUTH: ${CRESPOQA_AUTH:-off}
       CRESPOQA_ADMIN_USER: ${CRESPOQA_ADMIN_USER:-}
