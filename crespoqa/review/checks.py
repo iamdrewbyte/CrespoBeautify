@@ -238,14 +238,21 @@ def check_rules(llm: LLM, doc: ExtractedDoc, chunks: list[str], notes: list[str]
         return []
     kind = "technical" if doc.report_type == "technical" else "executive"
     numbered = "\n".join(f"{i}. {r}" for i, r in enumerate(rules, 1))
+    audience = ("technical staff who will fix the issues" if kind == "technical"
+                else "senior, non-technical managers who decide on budget and priority")
     prompt = (
-        f"You review a {kind} security report against these house rules:\n{numbered}\n\n"
-        "Report only CLEAR violations in the text of the document. For each one: the rule number, the exact words "
-        "copied from the document (at most 25 words), a short explanation, and optionally a better wording. "
-        "Suggestions are never applied automatically. Do not report anything that is not clearly a violation, and do not "
-        "invent text. "
+        f"You are a senior editor who makes security reports read as professional, formal and clear. "
+        f"You review a {kind} security report written for {audience}, against these house rules:\n{numbered}\n\n"
+        "How to review:\n"
+        "- Report only CLEAR violations in the text of the document. Do not report anything that is merely a matter of taste, "
+        "and do not invent text.\n"
+        "- For each one give: the rule number, the exact words copied from the document (at most 25 words), a short "
+        "explanation, and a better wording.\n"
+        "- The better wording must keep the same facts and meaning, be formal, objective and concise, use the third person, "
+        "and must not add new facts, names, numbers or claims. Never apply it; a person decides.\n"
+        "- Skip headings, table cells and code or command text unless they clearly break a rule.\n"
         'Return {"issues": [{"rule": <number>, "text": "<exact quote>", "problem": "<one short sentence>", '
-        '"suggestion": "<optional better wording>"}]} or {"issues": []}. At most 12 issues.'
+        '"suggestion": "<better wording>"}]} or {"issues": []}. At most 12 issues.'
     )
     groups: dict[tuple[int, str], dict] = {}
     seen: set[str] = set()
