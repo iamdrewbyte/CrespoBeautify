@@ -23,7 +23,7 @@ HELP = """Steps you can write (one per line):
   toc: refresh                                  also ask Word to refresh on open - not recommended: Word then
                                                 evaluates page references before pagination and shows 1 everywhere
   details: title "Document Details" ; page 4 ; set author = consultant ; column "Author" = consultant ; column "QA Review" = reviewer
-                                                column = fill the EMPTY cell under that heading in the last row of a version table
+                                                column = replace the name under that heading in a version table (Version | Date | Author | QA Review)
                                                 (row "Author" = ... does the same for label | value tables)
   tables: cantsplit on ; header rows 2 ; empty-page-breaks remove ; keep-together 15
   refresh                                       final refresh of title/author/filename and page numbers

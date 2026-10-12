@@ -43,7 +43,7 @@ def test_long_table_is_reported_across_pages(tmp_path, settings):
     assert hits and hits[0]["page"] == 1 and "(header row repeats)" in hits[0]["what"]
 
 
-def _details_doc(tmp_path, author_cell="", qa_cell=""):
+def _details_doc(tmp_path, qa_cell="Old Reviewer"):
     doc = Document()
     doc.add_paragraph("Document Details")
     d = doc.add_table(rows=2, cols=2)
@@ -52,29 +52,25 @@ def _details_doc(tmp_path, author_cell="", qa_cell=""):
     v = doc.add_table(rows=3, cols=4)
     for i, h in enumerate(["Version", "Date", "Author", "QA Review"]):
         v.cell(0, i).text = h
-    v.cell(1, 0).text = "0.1"; v.cell(1, 2).text = "Someone Else"
-    v.cell(2, 0).text = "1.0"; v.cell(2, 2).text = author_cell; v.cell(2, 3).text = qa_cell
+    v.cell(1, 0).text = "0.1"; v.cell(1, 2).text = "Template Author"
+    v.cell(2, 0).text = "1.0"; v.cell(2, 3).text = qa_cell
     src = tmp_path / "D.docx"; doc.save(src)
     return src
 
 
-def _last_row(path):
-    t = Document(path).tables[1]
-    return [c.text for c in t.rows[-1].cells]
-
-
-def test_version_table_author_is_filled_but_never_overwritten(tmp_path, settings):
+def test_version_table_author_name_is_replaced_and_empty_cells_stay_empty(tmp_path, settings):
     tpl = get_template("WebApp", "technical")
     src = _details_doc(tmp_path)
     rep = process_document(src, tmp_path / "o", tpl, RunForm(consultant="Ana Ruiz", reviewer="Rob Ray"), settings=settings, use_layout=False)
-    assert _last_row(tmp_path / "o" / "D.docx") == ["1.0", "", "Ana Ruiz", "Rob Ray"]
-    assert Document(tmp_path / "o" / "D.docx").tables[1].rows[1].cells[2].text == "Someone Else"   # older row untouched
+    rows = [[c.text for c in r.cells] for r in Document(tmp_path / "o" / "D.docx").tables[1].rows]
+    assert rows[1][2] == "Ana Ruiz"            # the existing author is replaced
+    assert rows[2][2] == ""                    # the empty Author cell is NOT filled
+    assert rows[2][3] == "Rob Ray"             # the existing QA reviewer is replaced
+    assert rows[1][3] == ""
     assert any("Author" in L["what"] for L in rep.locations)
 
-    src2 = _details_doc(tmp_path, author_cell="Already Here")
-    rep2 = process_document(src2, tmp_path / "o2", tpl, RunForm(consultant="Ana Ruiz"), settings=settings, use_layout=False)
-    assert _last_row(tmp_path / "o2" / "D.docx")[2] == "Already Here"
-    assert any("already contains text" in x for t in rep2.tasks for x in t.warnings)
+    rep2 = process_document(src, tmp_path / "o2", tpl, RunForm(consultant="Ana Ruiz"), settings=settings, use_layout=False)
+    assert [c.text for c in Document(tmp_path / "o2" / "D.docx").tables[1].rows[2].cells][3] == "Old Reviewer"   # no reviewer supplied
 
 
 def test_squeezed_details_table_is_spread(tmp_path, settings):

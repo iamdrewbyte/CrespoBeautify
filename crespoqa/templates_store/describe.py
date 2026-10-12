@@ -42,8 +42,8 @@ def describe_step(s) -> str:
         for c in p.cell_mappings:
             parts.append(f"Fill the row labelled '{c.get('row_label', '')}' from the {c.get('field', '').replace('_', ' ')}.")
         for c in p.column_mappings:
-            parts.append(f"In the version table, fill the empty '{c.get('column_label', '')}' cell of the latest row from the "
-                         f"{c.get('field', '').replace('_', ' ')} (existing text is never overwritten).")
+            parts.append(f"In the version table, replace the name under '{c.get('column_label', '')}' with the "
+                         f"{c.get('field', '').replace('_', ' ')} (empty cells stay empty).")
         parts.append("Update the fields in the table, remove fixed row heights, switch to auto-fit and remove text compression so nothing clips.")
         return " ".join(parts)
     if isinstance(s, m.TableFixStep):

@@ -69,8 +69,8 @@ class DocumentDetailsParams(BaseModel):
     }
     # Optional: put a form field into a specific cell, e.g. {"row_label": "Author", "field": "consultant"}
     cell_mappings: list[dict[str, str]] = []
-    # Version-history style tables (Version | Date | Author | QA Review): fill the EMPTY cell under this column heading
-    # in the latest (last) row. Never overwrites text that is already there.
+    # Version-history style tables (Version | Date | Author | QA Review): the name already written under this column
+    # heading is replaced by the form value. Empty cells are left empty.
     column_mappings: list[dict[str, str]] = [
         {"column_label": "Author", "field": "consultant"},
         {"column_label": "QA Review", "field": "reviewer"},

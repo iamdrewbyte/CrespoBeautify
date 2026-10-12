@@ -1,8 +1,6 @@
 """Task 3 (Document Details table) and Task 4 (table split fixes)."""
 from __future__ import annotations
 
-import copy
-
 from lxml import etree
 
 from ...templates_store import models as m
@@ -253,21 +251,20 @@ def _version_tables(tbl) -> list:
     return found
 
 
-def _fill_empty_cell(tc, value: str, like) -> None:
-    p = next(iter(_own_paragraphs(tc)), None)
-    if p is None:
-        p = etree.SubElement(tc, w("p"))
-    for r in [c for c in p if c.tag == w("r") and not para_text(p).strip()]:
-        p.remove(r)
-    r = etree.SubElement(p, w("r"))
-    if like is not None:
-        r.append(copy.deepcopy(like))
-    t = etree.SubElement(r, w("t"))
-    set_text(t, value)
+def _replace_cell_text(tc, value: str) -> bool:
+    """Put `value` in the cell's first text run (keeping its formatting) and blank the rest. False if there is no text run."""
+    ts = [t for p in _own_paragraphs(tc) for t in p.iter(w("t"))]
+    if not ts:
+        return False
+    set_text(ts[0], value)
+    for t in ts[1:]:
+        t.text = ""
+    return True
 
 
 def _fill_columns(ctx: Ctx, params: m.DocumentDetailsParams, tbl, res: TaskResult) -> None:
-    """Version-history tables: fill the empty cell under 'Author' / 'QA Review' in the latest row. Never overwrites text."""
+    """Version-history tables (Version | Date | Author | QA Review): the name already written under 'Author' (or 'QA Review')
+    is replaced by the consultant (or reviewer). Empty cells stay empty. Nothing else in the row changes."""
     if not params.column_mappings:
         return
     done: set = set()
@@ -276,27 +273,27 @@ def _fill_columns(ctx: Ctx, params: m.DocumentDetailsParams, tbl, res: TaskResul
         if len(rows) < 2:
             continue
         head = [_cell_text(tc).strip().rstrip(":").casefold() for tc in rows[0].findall(w("tc"))]
-        last = rows[-1].findall(w("tc"))
-        like = next((r.find(w("rPr")) for tr in rows[1:] for tc in tr.findall(w("tc")) for r in tc.iter(w("r"))
-                     if r.find(w("rPr")) is not None and any((t.text or "").strip() for t in r.iter(w("t")))), None)
         for cm in params.column_mappings:
             label = cm.get("column_label", "").strip().rstrip(":").casefold()
-            if label not in head or len(last) != len(head) or (cand, label) in done:
+            value = ctx.form.value(cm.get("field", "")).strip()
+            if label not in head or not value or (cand, label) in done:
                 continue
             done.add((cand, label))
-            cell = last[head.index(label)]
-            value = ctx.form.value(cm.get("field", "")).strip()
-            existing = _cell_text(cell).strip()
-            if not value:
-                continue
-            if not existing:
-                _fill_empty_cell(cell, value, like)
+            idx = head.index(label)
+            changed = 0
+            for tr in rows[1:]:
+                tcs = tr.findall(w("tc"))
+                if len(tcs) != len(head):
+                    continue
+                existing = _cell_text(tcs[idx]).strip()
+                if existing and existing != value and _replace_cell_text(tcs[idx], value):
+                    changed += 1
+            if changed:
                 ctx.pkg.touch("word/document.xml")
-                ctx.mark(f"Version table: '{cm['column_label']}' filled in the latest row", cand)
-                res.changes.append(f"Filled the empty '{cm['column_label']}' cell in the latest row of the version table from {cm['field']}")
-            elif existing.casefold() != value.casefold():
-                ctx.mark(f"Version table: '{cm['column_label']}' in the latest row already has text (left as is)", cand)
-                res.warnings.append(f"The '{cm['column_label']}' cell in the latest version row already contains text; it was left as it is. Check it by hand.")
+                ctx.mark(f"Version table: '{cm['column_label']}' name replaced ({changed}x)", cand)
+                res.changes.append(f"Replaced the name under '{cm['column_label']}' in the version table ({changed} cell(s)) with the {cm['field']}")
+            elif not any(_cell_text(r.findall(w('tc'))[idx]).strip() for r in rows[1:] if len(r.findall(w('tc'))) == len(head)):
+                res.warnings.append(f"The '{cm['column_label']}' column of the version table has no name to replace; nothing was changed.")
                 res.status = "warning"
 
 
