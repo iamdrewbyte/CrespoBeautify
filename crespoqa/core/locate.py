@@ -75,7 +75,13 @@ class _Finder:
         a = _norm(anchor)
         if len(a) < 4:
             return None
-        cands = [i + 1 for i in range(max(start, 1) - 1, len(self.pages)) if a in self.pages[i]]
+        cands = []
+        for probe in dict.fromkeys([a, a[:12], a[:8], a[:6]]):      # a narrow column may wrap the opening words
+            if len(probe) < 6 and probe != a:
+                continue
+            cands = [i + 1 for i in range(max(start, 1) - 1, len(self.pages)) if probe in self.pages[i]]
+            if cands:
+                break
         if not cands:
             return None
         guess = self.est.get(el)
@@ -136,3 +142,24 @@ def pages_with(page_texts: list[str] | None, quote: str) -> list[int]:
     if len(q) < 6:
         return []
     return [i + 1 for i, t in enumerate(page_texts) if q in _norm(t)][:3]
+
+
+_FOOTER = re.compile(r"^(page\s+\d+\s+(of\s+\d+)?|client confidential|confidential|\d+)$", re.I)
+
+
+def stranded_labels(page_texts: list[str] | None, labels: list[str]) -> list[tuple[int, str]]:
+    """(page, label) where a label such as 'Description' is the last real line of a rendered page: its content is on the
+    next page (or cut off), i.e. a cell takeover."""
+    if not page_texts or not labels:
+        return []
+    wanted = {l.strip().rstrip(":").casefold() for l in labels if l.strip()}
+    out = []
+    for i, text in enumerate(page_texts, 1):
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        lines = [ln for ln in lines if not _FOOTER.match(re.sub(r"\s{2,}", " ", ln))
+                 and not re.fullmatch(r"page\s+\d+\s+of\s+\d+(\s+.*)?", ln, re.I)]
+        for ln in lines[-2:]:
+            if ln.rstrip(":").casefold() in wanted:
+                out.append((i, ln))
+                break
+    return out

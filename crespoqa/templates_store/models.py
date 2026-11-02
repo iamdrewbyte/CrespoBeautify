@@ -88,6 +88,9 @@ class TableFixParams(BaseModel):
     header_min_rows: int = 2
     remove_empty_page_breaks_in_cells: bool = True
     keep_together_max_rows: int = 15  # tables up to this many rows move whole to the next page instead of splitting; 0 = off
+    # A row (or cell paragraph) whose text is one of these labels is kept on the same page as the content under it, so a
+    # "Description" heading is never left alone at the bottom of a page ("cell takeover"). Empty list = off.
+    keep_with_content: list[str] = ["Description"]
 
 
 class TableFixStep(_Step):

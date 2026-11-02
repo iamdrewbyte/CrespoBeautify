@@ -14,7 +14,7 @@ from .context import Ctx, RunForm
 from .docx_validate import InvalidDocx, validate_docx
 from .logging_setup import JobLogger
 from .package import DocxPackage
-from .locate import locate
+from .locate import locate, stranded_labels
 from .pagenum import _plan_contents, contents_labels, pages_from_layout, refresh_page_numbers
 from .pages import find_soffice, render_page_texts
 from .steps import fields_steps, tables, text
@@ -174,6 +174,11 @@ def process_document(
         try:
             texts = _final_layout(ctx, pkg, work, use_layout, settings)
             report.locations = locate(pkg.document.find(w("body")), ctx.marks, texts)
+            tf = next((s.params for s in template.steps if s.enabled and s.type == "table_fix"), None)
+            for pg, label in stranded_labels(texts, tf.keep_with_content if tf else []):
+                report.locations.append(dict(page=pg, where="", what=f"'{label}' is the last line of this page: its content may be cut off or on the next page (cell takeover). Check it",
+                                             hint="", count=1, approx=False))
+            report.locations.sort(key=lambda r: (r["page"] is None, r["page"] or 0, r["what"]))
             if layout_out is not None and texts:
                 layout_out.extend(texts)
         except Exception as exc:              # a helper list must never fail the document

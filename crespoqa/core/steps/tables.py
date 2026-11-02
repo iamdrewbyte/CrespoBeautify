@@ -369,6 +369,36 @@ def keep_tables_together(root, max_rows: int, collect: list | None = None) -> tu
     return tables, intro
 
 
+def keep_labels_with_content(root, labels: list[str]) -> list:
+    """Cell takeover: a label such as 'Description' (a row of its own, or a paragraph at the top of a cell) must not be
+    left alone at the bottom of a page. 'Keep with next' on it makes Word move it to the next page together with the
+    content under it (rows cannot split, so the whole content row moves too). Returns the tables that were changed."""
+    wanted = {l.strip().rstrip(":").casefold() for l in labels if l.strip()}
+    if not wanted:
+        return []
+    changed: list = []
+    for tr in root.iter(w("tr")):
+        tcs = tr.findall(w("tc"))
+        if not any(_cell_text(tc).strip().rstrip(":").casefold() in wanted for tc in tcs):
+            continue
+        did = False
+        for tc in tcs:
+            for p in _own_paragraphs(tc):
+                did |= _keep_next(p)
+        if did:
+            tbl = next(tr.iterancestors(w("tbl")), None)
+            if tbl is not None and tbl not in changed:
+                changed.append(tbl)
+    for tc in root.iter(w("tc")):                      # label paragraph followed by detail paragraphs in the same cell
+        paras = list(_own_paragraphs(tc))
+        for i, p in enumerate(paras[:-1]):
+            if para_text(p).strip().rstrip(":").casefold() in wanted and _keep_next(p):
+                tbl = next(tc.iterancestors(w("tbl")), None)
+                if tbl is not None and tbl not in changed:
+                    changed.append(tbl)
+    return changed
+
+
 def table_fix(ctx: Ctx, params: m.TableFixParams) -> TaskResult:
     res = TaskResult("table_fix", "Fix table splits across pages")
     root = ctx.pkg.document
@@ -412,15 +442,22 @@ def table_fix(ctx: Ctx, params: m.TableFixParams) -> TaskResult:
         kept, intro = keep_tables_together(root, params.keep_together_max_rows, moved)
         for t in moved:
             ctx.mark("Table kept together on one page", t)
-    if added or headers_added or breaks or kept:
+    labelled: list = []
+    if params.keep_with_content:
+        labelled = keep_labels_with_content(root, params.keep_with_content)
+        for t in labelled:
+            ctx.mark(f"{' / '.join(params.keep_with_content)} label kept with its content (moves to the next page together)", t)
+    if added or headers_added or breaks or kept or labelled:
         ctx.pkg.touch("word/document.xml")
     res.counts.update(tables=len(tables), cant_split_added=added, cant_split_existing=existing,
-                      headers_added=headers_added, page_breaks_removed=breaks, kept_together=kept)
+                      headers_added=headers_added, page_breaks_removed=breaks, kept_together=kept, labels_kept=len(labelled))
     res.changes.append(f"Applied cantSplit to {added} row(s) ({existing} already had it) across {len(tables)} table(s)")
     res.changes.append(f"Set repeat-header on {headers_added} table(s)")
     res.changes.append(f"Removed {breaks} empty manual page break(s) inside table cells")
     if params.keep_together_max_rows:
         res.changes.append(f"Kept {kept} table(s) together on one page (a table that does not fit moves whole to the next page)")
+    if params.keep_with_content:
+        res.changes.append(f"Kept the {' / '.join(params.keep_with_content)} label with its content in {len(labelled)} table(s) so it is never left alone at the bottom of a page")
     if not tables:
         res.warnings.append("No tables found in the document.")
         res.status = "warning"

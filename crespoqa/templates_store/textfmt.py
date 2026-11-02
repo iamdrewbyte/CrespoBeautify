@@ -25,7 +25,9 @@ HELP = """Steps you can write (one per line):
   details: title "Document Details" ; page 4 ; set author = consultant ; column "Author" = consultant ; column "QA Review" = reviewer
                                                 column = replace the name under that heading in a version table (Version | Date | Author | QA Review)
                                                 (row "Author" = ... does the same for label | value tables)
-  tables: cantsplit on ; header rows 2 ; empty-page-breaks remove ; keep-together 15
+  tables: cantsplit on ; header rows 2 ; empty-page-breaks remove ; keep-together 15 ; keep-with-next "Description"
+                                                keep-with-next = a "Description" label never sits alone at the bottom of a page:
+                                                it moves to the next page together with its content (a cell takeover)
   refresh                                       final refresh of title/author/filename and page numbers
   ai: Use a formal, third-person tone.          one house rule per line; the optional AI review checks the report
                                                 against these rules (it only flags, it never edits)
@@ -184,10 +186,18 @@ def _parse_step(kw: str, rest: str, n: int, enabled: bool):
                 p.header_repeat, p.header_min_rows = "multi_row", int(low[2])
             elif low[:1] == ["empty-page-breaks"] and len(low) == 2 and low[1] in ("remove", "keep"):
                 p.remove_empty_page_breaks_in_cells = low[1] == "remove"
+            elif low[:1] == ["keep-with-next"]:
+                rest_p = part[len("keep-with-next"):].strip()
+                if rest_p.lower() in ("off", "none"):
+                    p.keep_with_content = []
+                else:
+                    p.keep_with_content = _quoted(rest_p)
+                    if not p.keep_with_content:
+                        raise TextError(f'Line {n}: write  keep-with-next "Description"  (or  keep-with-next off)')
             elif low[:1] == ["keep-together"] and len(low) == 2 and (low[1] == "off" or low[1].isdigit()):
                 p.keep_together_max_rows = 0 if low[1] == "off" else int(low[1])
             else:
-                raise TextError(f"Line {n}: could not read '{part[:30]}'. Parts: cantsplit on|off ; header off | header rows N ; empty-page-breaks remove|keep ; keep-together N|off")
+                raise TextError(f"Line {n}: could not read '{part[:30]}'. Parts: cantsplit on|off ; header off | header rows N ; empty-page-breaks remove|keep ; keep-together N|off ; keep-with-next \"Label\" | off")
         return m.TableFixStep(enabled=enabled, params=p)
     raise TextError(f"Line {n}: unknown step '{kw}'. Steps: period, placeholders, replace, toc, details, tables, refresh.")
 
@@ -216,7 +226,8 @@ def to_text(steps: list) -> str:
             parts = [f"cantsplit {'on' if p.cant_split else 'off'}",
                      "header off" if p.header_repeat == "off" else f"header rows {p.header_min_rows}",
                      f"empty-page-breaks {'remove' if p.remove_empty_page_breaks_in_cells else 'keep'}",
-                     f"keep-together {p.keep_together_max_rows if p.keep_together_max_rows else 'off'}"]
+                     f"keep-together {p.keep_together_max_rows if p.keep_together_max_rows else 'off'}",
+                     "keep-with-next " + (" ".join(_q(x) for x in p.keep_with_content) if p.keep_with_content else "off")]
             body = "tables: " + " ; ".join(parts)
         elif isinstance(s, m.AiRulesStep):
             for r in p.rules:

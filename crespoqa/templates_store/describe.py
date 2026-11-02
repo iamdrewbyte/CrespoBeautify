@@ -57,6 +57,9 @@ def describe_step(s) -> str:
         if p.keep_together_max_rows:
             bits.append(f"keep tables of up to {p.keep_together_max_rows} rows together: if one does not fit at the bottom of a page, "
                         "the whole table (with the sentence introducing it) moves to the next page")
+        if p.keep_with_content:
+            bits.append("keep a " + " / ".join(_q(p.keep_with_content)) + " label together with the content under it: if the label would "
+                        "end up alone at the bottom of a page (a cell takeover), it moves to the next page with its content")
         return "For all tables: " + "; ".join(bits) + "." if bits else "Table fixes: nothing enabled."
     if isinstance(s, m.AiRulesStep):
         return (f"AI review rules ({len(p.rules)}): the optional AI review checks the report against these and flags "
