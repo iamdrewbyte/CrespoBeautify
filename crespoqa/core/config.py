@@ -28,6 +28,7 @@ class Settings:
     log_level: str
     workers: int = 1
     ttl_minutes: int = 30
+    max_batch_files: int = 40
     host: str = "127.0.0.1"
     port: int = 8000
     db_path: Path = Path("data/crespoqa.db")
@@ -62,6 +63,7 @@ def load_settings() -> Settings:
         log_level=(env("CRESPOQA_LOG_LEVEL") or "INFO").upper(),
         workers=max(1, int(env("CRESPOQA_WORKERS") or 1)),
         ttl_minutes=max(1, int(env("CRESPOQA_TTL_MINUTES") or 30)),
+        max_batch_files=max(2, int(env("CRESPOQA_MAX_BATCH") or 40)),
         host=env("CRESPOQA_HOST") or "127.0.0.1",
         port=int(env("CRESPOQA_PORT") or 8000),
         db_path=Path(env("CRESPOQA_DB") or "data/crespoqa.db"),

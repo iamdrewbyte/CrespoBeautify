@@ -246,7 +246,7 @@ def create_app(settings: Settings | None = None, store: Store | None = None, llm
     @app.get("/api/services")
     def services(user: dict = Depends(current_user)):
         return {"services": store.runnable_services(), "max_file_mb": settings.max_file_bytes // (1024 * 1024),
-                "ai_review": manager.llm is not None}
+                "max_batch": settings.max_batch_files, "ai_review": manager.llm is not None}
 
     # -- templates ---------------------------------------------------
     @app.get("/api/templates")
@@ -289,6 +289,60 @@ def create_app(settings: Settings | None = None, store: Store | None = None, llm
         return {"ok": True}
 
     # -- jobs --------------------------------------------------------
+    def _unique_name(raw, rtype: str, used: set[str]) -> str:
+        name = _safe_name(raw, f"{rtype}_report.docx")
+        if name.lower() in used:                     # same file name twice: keep the outputs distinct
+            stem, n = f"{Path(name).stem}_{rtype}", 2
+            name = f"{stem}.docx"
+            while name.lower() in used:
+                name, n = f"{stem}_{n}.docx", n + 1
+        used.add(name.lower())
+        return name
+
+    async def _make_job(user: dict, items: list, vals: dict, dry_run: bool, ai_review: bool):
+        """items: [(UploadFile, report_type, service)]"""
+        templates_by_name: dict = {}
+        cache: dict = {}
+        for _up, rtype, service in items:
+            if (service, rtype) not in cache:
+                try:
+                    cache[(service, rtype)] = store.get_active(service, rtype)
+                except KeyError:
+                    raise HTTPException(400, f"Unknown service '{service[:40]}', or it has no active {rtype.title()} template.")
+        if ai_review and manager.llm is None:
+            raise HTTPException(400, "AI review is not enabled on this server.")
+        if any(len(v) > MAX_FIELD for v in vals.values()):
+            raise HTTPException(400, "A form field is too long.")
+        for f in ("consultant", "period"):
+            if any(template_uses(t, f) for t in cache.values()) and not vals[f]:
+                raise HTTPException(400, f"{'Consultant full name' if f == 'consultant' else 'Engagement period'} is required for this service.")
+
+        job_dir = manager.new_job_dir()
+        uploads, service_of, used = [], {}, set()
+        try:
+            for up, rtype, service in items:
+                name = _unique_name(up.filename, rtype, used)
+                dest = job_dir / "in" / name
+                await _save_upload(up, dest, settings.max_file_bytes)
+                if len(items) <= 2:                  # a single pair: reject a broken file up front
+                    try:
+                        validate_docx(dest, settings.max_file_bytes)
+                    except InvalidDocx as exc:
+                        raise HTTPException(400, f"{rtype.title()} report: {exc}")
+                uploads.append((rtype, name, dest))
+                templates_by_name[name] = cache[(service, rtype)]
+                service_of[name] = service
+        except HTTPException:
+            shutil.rmtree(job_dir, ignore_errors=True)
+            raise
+        first_service = items[0][2]
+        job = manager.create(first_service if len(set(service_of.values())) == 1 else "Mixed", RunForm(**vals), dry_run,
+                             uploads, templates_by_name, user["username"], ai_review, service_of)
+        return {"job_id": job.id}
+
+    def _vals(**kw) -> dict:
+        return {k: (v or "").strip() for k, v in kw.items()}
+
     @app.post("/api/jobs")
     async def create_job(
         user: dict = Depends(current_user),
@@ -303,41 +357,37 @@ def create_app(settings: Settings | None = None, store: Store | None = None, llm
         dry_run: bool = Form(False),
         ai_review: bool = Form(False),
     ):
-        try:
-            templates = {"technical": store.get_active(service, "technical"), "executive": store.get_active(service, "executive")}
-        except KeyError:
-            raise HTTPException(400, "Unknown service, or it lacks an active Technical or Executive template.")
-        if ai_review and manager.llm is None:
-            raise HTTPException(400, "AI review is not enabled on this server.")
-        vals = {k: v.strip() for k, v in dict(consultant=consultant, reviewer=reviewer, client=client,
-                                              report_date=report_date, period=period).items()}
-        if any(len(v) > MAX_FIELD for v in vals.values()):
-            raise HTTPException(400, "A form field is too long.")
-        for f in ("consultant", "period"):
-            if any(template_uses(t, f) for t in templates.values()) and not vals[f]:
-                raise HTTPException(400, f"{'Consultant full name' if f == 'consultant' else 'Engagement period'} is required for this service.")
+        vals = _vals(consultant=consultant, reviewer=reviewer, client=client, report_date=report_date, period=period)
+        return await _make_job(user, [(technical, "technical", service), (executive, "executive", service)], vals, dry_run, ai_review)
 
-        job_dir = manager.new_job_dir()
-        uploads = []
-        try:
-            used: set[str] = set()
-            for rtype, up in (("technical", technical), ("executive", executive)):
-                name = _safe_name(up.filename, f"{rtype}_report.docx")
-                if name.lower() in used:  # same file name for both uploads: keep outputs distinct
-                    name = f"{Path(name).stem}_{rtype}.docx"
-                used.add(name.lower())
-                dest = job_dir / "in" / name
-                await _save_upload(up, dest, settings.max_file_bytes)
-                try:
-                    validate_docx(dest, settings.max_file_bytes)
-                except InvalidDocx as exc:
-                    raise HTTPException(400, f"{rtype.title()} report: {exc}")
-                uploads.append((rtype, name, dest))
-        except HTTPException:
-            shutil.rmtree(job_dir, ignore_errors=True)
-            raise
-        job = manager.create(service, RunForm(**vals), dry_run, uploads, templates, user["username"], ai_review)
-        return {"job_id": job.id}
+    @app.post("/api/jobs/bulk")
+    async def create_bulk_job(
+        user: dict = Depends(current_user),
+        files: list[UploadFile] = File(...),
+        types: list[str] = Form(...),
+        services: list[str] = Form(default=[]),
+        service: str = Form(...),
+        consultant: str = Form(""),
+        reviewer: str = Form(""),
+        client: str = Form(""),
+        report_date: str = Form(""),
+        period: str = Form(""),
+        dry_run: bool = Form(False),
+        ai_review: bool = Form(False),
+    ):
+        if not files:
+            raise HTTPException(400, "Add at least one report.")
+        if len(files) > settings.max_batch_files:
+            raise HTTPException(400, f"At most {settings.max_batch_files} reports at a time.")
+        if len(types) != len(files):
+            raise HTTPException(400, "Choose Technical or Executive for every report.")
+        if any(t not in ("technical", "executive") for t in types):
+            raise HTTPException(400, "Choose Technical or Executive for every report.")
+        svc = [(services[i].strip() if i < len(services) else "") or service for i in range(len(files))]
+        if ai_review and not (len(files) == 2 and set(types) == {"technical", "executive"}):
+            raise HTTPException(400, "AI review works on one Technical + Executive pair at a time.")
+        vals = _vals(consultant=consultant, reviewer=reviewer, client=client, report_date=report_date, period=period)
+        return await _make_job(user, list(zip(files, types, svc)), vals, dry_run, ai_review)
 
     def _job(job_id: str, user: dict):
         job = manager.get(job_id)
@@ -390,6 +440,16 @@ def create_app(settings: Settings | None = None, store: Store | None = None, llm
                     return
 
         return StreamingResponse(gen(), media_type="text/event-stream", headers={"X-Accel-Buffering": "no"})
+
+    @app.get("/api/jobs/{job_id}/zip")
+    def download_zip(job_id: str, user: dict = Depends(current_user)):
+        job = _job(job_id, user)
+        z = manager.make_zip(job) if job.status == "done" else None
+        if z is None:
+            raise HTTPException(404, "File not available (already downloaded or expired).")
+        resp = FileResponse(z, filename="CrespoQA_reports.zip", media_type="application/zip")
+        resp.background = BackgroundTask(manager.mark_all_downloaded, job)
+        return resp
 
     @app.get("/api/jobs/{job_id}/files/{name}")
     def download(job_id: str, name: str, user: dict = Depends(current_user)):

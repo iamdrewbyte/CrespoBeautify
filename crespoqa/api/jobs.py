@@ -8,6 +8,7 @@ import shutil
 import threading
 import time
 import uuid
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -30,19 +31,21 @@ class Job:
     dry_run: bool
     dir: Path
     inputs: list[tuple[str, Path]]  # (report_type, path)
-    templates: dict = field(default_factory=dict)  # report_type -> Template (version pinned at submit)
+    templates: dict = field(default_factory=dict)  # input file name -> Template (version pinned at submit)
     owner: str = ""
     ai_review: bool = False
     review: ReviewState | None = None
     review_docs: dict | None = None  # extracted text held in memory only until the review ends
     layout_texts: dict | None = None  # rendered page text per report type, memory only, to name pages in review flags
     created: float = field(default_factory=time.time)
+    finished: float = 0.0                              # when processing ended: the clean-up clock starts here
     status: str = "queued"  # queued | running | done
     plan: dict[str, list[dict]] = field(default_factory=dict)  # input name -> steps
     reports: list[DocReport] = field(default_factory=list)
     outputs: list[str] = field(default_factory=list)
     downloaded: set[str] = field(default_factory=set)
     files_deleted: bool = False
+    service_of: dict = field(default_factory=dict)  # input file name -> service used for it
     saved: list = field(default_factory=list)      # [{name, ok, error}] when CRESPOQA_SAVE_DIR is set
     events: list[dict] = field(default_factory=list)
     cond: threading.Condition = field(default_factory=threading.Condition)
@@ -59,6 +62,8 @@ class Job:
             "files_deleted": self.files_deleted,
             "review_status": self.review.status if self.review else "off",
             "saved": self.saved,
+            "kinds": {p.name: rt for rt, p in self.inputs},
+            "services": self.service_of,
             "reports": [
                 {"index": i, "input_name": r.input_name, "report_type": r.report_type, "status": r.status,
                  "error": r.error, "template": r.template, "template_version": r.template_version,
@@ -111,13 +116,14 @@ class JobManager:
 
     # -- API -----------------------------------------------------------
     def create(self, service: str, form: RunForm, dry_run: bool, uploads: list[tuple[str, str, Path]],
-               templates: dict, owner: str, ai_review: bool = False) -> Job:
+               templates: dict, owner: str, ai_review: bool = False, service_of: dict | None = None) -> Job:
         """uploads: (report_type, safe_name, path already inside the job dir)."""
         job_dir = uploads[0][2].parent.parent
         job = Job(id=job_dir.name, service=service, form=form, dry_run=dry_run, dir=job_dir,
-                  inputs=[(rt, p) for rt, _n, p in uploads], templates=templates, owner=owner, ai_review=ai_review)
+                  inputs=[(rt, p) for rt, _n, p in uploads], templates=templates, owner=owner, ai_review=ai_review,
+                  service_of=service_of or {p.name: service for _rt, _n, p in uploads})
         for rt, p in job.inputs:
-            job.plan[p.name] = plan_for(templates[rt])
+            job.plan[p.name] = plan_for(templates[p.name])
         with self.lock:
             self.jobs[job.id] = job
         self.q.put(job.id)
@@ -136,6 +142,23 @@ class JobManager:
         shutil.rmtree(job.dir, ignore_errors=True)
         job.files_deleted = True
         log.info(f"[job {job.id[:8]}] files deleted")
+
+    def make_zip(self, job: Job) -> Path | None:
+        """All finished files in one archive (docx is already compressed, so the archive is just stored)."""
+        if job.files_deleted or not job.outputs:
+            return None
+        z = job.dir / "CrespoQA_reports.zip"
+        if not z.exists():
+            tmp = job.dir / "zip.part"
+            with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as zf:
+                for n in job.outputs:
+                    zf.write(job.dir / "out" / n, n)
+            os.replace(tmp, z)
+        return z
+
+    def mark_all_downloaded(self, job: Job) -> None:
+        for n in list(job.outputs):
+            self.mark_downloaded(job, n)
 
     def mark_downloaded(self, job: Job, name: str) -> None:
         job.downloaded.add(name)
@@ -157,6 +180,7 @@ class JobManager:
                 log.exception(f"[job {job.id[:8]}] worker error")
             finally:
                 job.status = "done"
+                job.finished = time.time()
                 job.emit(type="job", state="done")
 
     def _run(self, job: Job) -> None:
@@ -165,7 +189,7 @@ class JobManager:
         out_dir = None if job.dry_run else job.dir / "out"
         for rtype, path in job.inputs:
             name = path.name
-            template = job.templates[rtype]
+            template = job.templates[name]
 
             def progress(key: str, state: str, _n=name):
                 job.emit(type="step", doc=_n, key=key, state=state)
@@ -257,7 +281,13 @@ class JobManager:
     def sweep(self) -> None:
         cutoff = time.time() - self.settings.ttl_minutes * 60
         with self.lock:
-            expired = [j for j in self.jobs.values() if j.created < cutoff and j.status != "running"]
+            def old(j) -> bool:
+                if j.status == "running":
+                    return False
+                if j.status == "done":
+                    return (j.finished or j.created) < cutoff      # the clock starts when processing ended
+                return j.created < cutoff - 6 * 3600               # still queued behind a long batch
+            expired = [j for j in self.jobs.values() if old(j)]
             for j in expired:
                 del self.jobs[j.id]
         for j in expired:

@@ -102,6 +102,7 @@ def test_ttl_sweep_and_startup_cleanup(client, sample_docx):
     jid = post(client, sample_docx).json()["job_id"]
     wait(client, jid)
     client.manager.jobs[jid].created -= 31 * 60
+    client.manager.jobs[jid].finished -= 31 * 60
     client.manager.sweep()
     assert client.get(f"/api/jobs/{jid}").status_code == 404 and not job_dir_exists(client, jid)
     stale = client.manager.root / "leftover"; stale.mkdir()
@@ -131,3 +132,43 @@ def test_pages_have_no_inline_scripts_and_scripts_are_not_empty():
         assert not re.search(r"<script(?![^>]*\bsrc=)[^>]*>", html), f"inline script in {page}"
         for src in re.findall(r'<script[^>]*src="/static/([^"]+)"', html):
             assert len((web / "static" / src).read_text(encoding="utf-8").strip()) > 50, f"{src} is empty"
+
+
+def test_bulk_upload_zip_and_per_file_service(client, sample_docx, tmp_path):
+    import io, zipfile
+    b = sample_docx.read_bytes()
+    files = [("files", (f"Client{i}-{'Technical' if i % 2 else 'Executive'}Report.docx", b)) for i in range(6)]
+    types = ["technical" if i % 2 else "executive" for i in range(6)]
+    data = {"service": "VA", "consultant": "Ana Ruiz", "types": types, "services": ["", "WebApp", "", "", "", ""]}
+    r = client.post("/api/jobs/bulk", data=data, files=files)
+    assert r.status_code == 200, r.text
+    snap = wait(client, r.json()["job_id"])
+    assert len(snap["outputs"]) == 6 and [x["status"] for x in snap["reports"]].count("failed") == 0
+    assert snap["services"]["Client1-TechnicalReport.docx"] == "WebApp" and snap["services"]["Client0-ExecutiveReport.docx"] == "VA"
+    z = client.get(f"/api/jobs/{snap['id']}/zip")
+    assert z.status_code == 200 and z.headers["content-type"] == "application/zip"
+    names = zipfile.ZipFile(io.BytesIO(z.content)).namelist()
+    assert sorted(names) == sorted(snap["outputs"])
+    assert client.get(f"/api/jobs/{snap['id']}/zip").status_code == 404             # downloaded: files are gone
+
+
+def test_bulk_rejections(client, sample_docx):
+    b = sample_docx.read_bytes()
+    one = [("files", ("a.docx", b))]
+    assert client.post("/api/jobs/bulk", data={"service": "VA", "consultant": "A", "types": ["nonsense"]}, files=one).status_code == 400
+    assert client.post("/api/jobs/bulk", data={"service": "VA", "consultant": "A", "types": []}, files=one).status_code in (400, 422)
+    assert client.post("/api/jobs/bulk", data={"service": "Nope", "consultant": "A", "types": ["technical"]}, files=one).status_code == 400
+    many = [("files", (f"f{i}.docx", b)) for i in range(60)]
+    assert client.post("/api/jobs/bulk", data={"service": "VA", "consultant": "A", "types": ["technical"] * 60}, files=many).status_code == 400
+    two = [("files", ("a.docx", b)), ("files", ("b.docx", b)), ("files", ("c.docx", b))]
+    assert client.post("/api/jobs/bulk", data={"service": "VA", "consultant": "A", "types": ["technical"] * 3, "ai_review": "true"}, files=two).status_code == 400
+
+
+def test_bulk_bad_file_fails_only_itself_and_duplicates_stay_distinct(client, sample_docx):
+    b = sample_docx.read_bytes()
+    files = [("files", ("Same.docx", b)), ("files", ("Same.docx", b)), ("files", ("Broken.docx", b"not a docx"))]
+    r = client.post("/api/jobs/bulk", data={"service": "VA", "consultant": "A", "types": ["technical"] * 3}, files=files)
+    assert r.status_code == 200
+    snap = wait(client, r.json()["job_id"])
+    assert len(snap["outputs"]) == 2 and len(set(snap["outputs"])) == 2
+    assert [x["status"] for x in snap["reports"]].count("failed") == 1

@@ -14,14 +14,14 @@
 <main>
   <section id="form-view" aria-labelledby="h-run">
     <div class="titlerow"><h1 id="h-run">Run QA</h1>
-      <p class="muted">Upload the Technical and Executive reports. Files are processed, offered for download, then deleted.</p></div>
+      <p class="muted">Upload one pair or a whole batch. Files are processed, offered for download, then deleted.</p></div>
     <div id="error" class="alert" role="alert" hidden></div>
     <form id="qa-form" novalidate>
       <div class="form-layout">
         <div class="box">
           <h2>Report details</h2>
           <div class="grid">
-            <label>Service
+            <label>Default service
               <select id="service" name="service" required></select>
             </label>
             <label>Consultant full name
@@ -42,19 +42,12 @@
           </div>
         </div>
         <div class="box">
-          <h2>Reports</h2>
-          <div class="drops">
-            <div class="drop" data-for="technical" tabindex="0" role="button" aria-label="Technical report: choose or drop a .docx file">
-              <strong>Technical Report</strong><span class="hint">Drop .docx here or click to browse</span>
-              <span class="fname" aria-live="polite"></span>
-              <input type="file" name="technical" accept=".docx" required tabindex="-1">
-            </div>
-            <div class="drop" data-for="executive" tabindex="0" role="button" aria-label="Executive report: choose or drop a .docx file">
-              <strong>Executive Report</strong><span class="hint">Drop .docx here or click to browse</span>
-              <span class="fname" aria-live="polite"></span>
-              <input type="file" name="executive" accept=".docx" required tabindex="-1">
-            </div>
+          <h2>Reports <span id="count" class="count"></span></h2>
+          <div id="dz" class="dz" tabindex="0" role="button" aria-label="Choose or drop .docx reports">
+            <strong>Drop reports here</strong><span class="hint">or click to browse. Several at once; Technical and Executive can be mixed.</span>
+            <input type="file" id="files" accept=".docx" multiple tabindex="-1">
           </div>
+          <div id="flist" class="flist" hidden></div>
           <label class="check" id="ai-wrap" hidden><input type="checkbox" id="ai_review"> AI review (local model): flags leftovers, mismatches and typos. It only flags; nothing is edited.</label>
           <label class="check"><input type="checkbox" name="dry_run" id="dry_run"> Dry run: show what would change, produce no files</label>
           <button id="submit" class="primary wide-btn" type="submit">Run QA</button>
