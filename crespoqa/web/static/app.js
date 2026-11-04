@@ -159,7 +159,7 @@
     card.append(h);
     if (rep.error) card.append(el("div", "alert", rep.error));
     const ol = el("ol", "steps");
-    rep.tasks.filter(t => t.key !== "prechecks" || t.warnings.length).forEach(t => {
+    rep.tasks.filter(t => t.key !== "prechecks" || t.warnings.length || t.changes.length).forEach(t => {
       const li = el("li"), items = [...t.changes.map(c => ["", c]), ...t.warnings.map(w => ["w", "Warning: " + w])];
       const warn = t.warnings.length > 0;
       const count = warn ? `${t.warnings.length} to check` : t.changes.length === 1 && /^No |nothing/i.test(t.changes[0]) ? "no change" : `${t.changes.length} change${t.changes.length === 1 ? "" : "s"}`;

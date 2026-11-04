@@ -42,6 +42,32 @@ class DocxPackage:
             self._raw: dict[str, bytes] = {i.filename: z.read(i.filename) for i in self._infos}
         self._xml: dict[str, etree._Element] = {}
         self._dirty: set[str] = set()
+        self.repairs: list[str] = []
+        self._repair_core_properties()
+
+    def _repair_core_properties(self) -> None:
+        """A package may hold one core-properties relationship. Files an earlier version of this tool saved have two
+        (Word then refuses to open them): keep the first (the document's own) and drop the extra one and its part."""
+        if "_rels/.rels" not in self._raw:
+            return
+        rels = self.xml("_rels/.rels")
+        core = [r for r in rels if r.get("Type") == CORE_REL]
+        if len(core) < 2:
+            return
+        for r in core[1:]:
+            rels.remove(r)
+            part = (r.get("Target") or "").lstrip("/")
+            if part and part != (core[0].get("Target") or "").lstrip("/") and part in self._raw:
+                self._raw.pop(part)
+                self._infos = [i for i in self._infos if i.filename != part]
+                self._xml.pop(part, None)
+                ct = self.xml("[Content_Types].xml")
+                for o in list(ct):
+                    if o.get("PartName") == "/" + part:
+                        ct.remove(o)
+                self.touch("[Content_Types].xml")
+        self.touch("_rels/.rels")
+        self.repairs.append("Repaired the file: it had two document-properties entries (left by an earlier run), which stops Word opening it. The extra one was removed.")
 
     # -- part access -------------------------------------------------
     def has(self, name: str) -> bool:

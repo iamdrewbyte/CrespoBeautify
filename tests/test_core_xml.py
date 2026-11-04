@@ -486,3 +486,28 @@ def test_render_copy_unwraps_nested_body(tmp_path):
         body = etree.fromstring(z.read("word/document.xml")).find(w("body"))
     assert not list(body.iter(w("body"))) or all(b is body for b in body.iter(w("body")))
     assert body[-1].tag == w("sectPr") and any(c.tag == w("p") for c in body)
+
+
+def test_file_already_damaged_by_an_earlier_run_is_repaired(tmp_path):
+    import zipfile
+    from crespoqa.core.docx_validate import check_output_package
+    from crespoqa.core.package import DocxPackage
+    src = _sdk_style_docx(tmp_path)
+    broken = tmp_path / "broken.docx"
+    with zipfile.ZipFile(src) as zin, zipfile.ZipFile(broken, "w") as zo:
+        for i in zin.infolist():
+            data = zin.read(i.filename)
+            if i.filename == "_rels/.rels":
+                data = data.replace(b"</Relationships>", b'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>')
+            if i.filename == "[Content_Types].xml":
+                data = data.replace(b"</Types>", b'<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>')
+            zo.writestr(i.filename, data)
+        zo.writestr("docProps/core.xml", b'<?xml version="1.0"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:creator>X</dc:creator></cp:coreProperties>')
+    assert any("two core-properties" in p for p in check_output_package(broken))
+    pkg = DocxPackage(broken)
+    assert pkg.repairs
+    pkg.set_property("Author", "Ana Ruiz")
+    out = tmp_path / "fixed.docx"; pkg.save(out)
+    assert check_output_package(out) == []
+    with zipfile.ZipFile(out) as z:
+        assert "docProps/core.xml" not in z.namelist()

@@ -146,6 +146,7 @@ def process_document(
                     pre.warnings.append("Layout render failed or timed out; page cross-checks skipped.")
             else:
                 pre.changes.append("LibreOffice not available: page checks use Word's saved page markers only.")
+        pre.changes.extend(pkg.repairs)
         report.tasks.append(pre)
 
         steps = [s for s in template.steps if s.enabled and s.type in RUNNERS]
@@ -193,7 +194,7 @@ def process_document(
                 raise InvalidDocx("The output would overwrite the original file. Choose a different output folder.")
             try:
                 pkg.save(out_dir / out_name)
-                bad = [b for b in check_output_package(out_dir / out_name) if b not in check_output_package(src)]   # only what this tool introduced
+                bad = [b for b in check_output_package(out_dir / out_name) if b not in check_output_package(src) or "core-properties" in b]   # only what this tool introduced (never a doubled properties entry)
                 if bad:
                     (out_dir / out_name).unlink(missing_ok=True)
                     log.error("Output failed the package check: " + "; ".join(bad))
