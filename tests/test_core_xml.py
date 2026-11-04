@@ -411,3 +411,78 @@ def test_update_fields_flag_is_never_set_by_default(sample_docx, tmp_path, setti
     run(sample_docx, tmp_path / "o", settings)                          # sample has a real TOC field
     with zf.ZipFile(tmp_path / "o" / "Tech Report.docx") as z:
         assert b"updateFields" not in z.read("word/settings.xml")
+
+
+# ---- generator-made files (Open XML SDK style): odd core-properties part and <w:body> nested in <w:body> ----
+def _sdk_style_docx(tmp_path):
+    import re
+    import zipfile
+    from docx import Document
+    d = Document(); d.add_paragraph("Hello report"); src = tmp_path / "plain.docx"; d.save(src)
+    out = tmp_path / "sdk.docx"
+    with zipfile.ZipFile(src) as zin, zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zo:
+        for i in zin.infolist():
+            data = zin.read(i.filename)
+            if i.filename == "docProps/core.xml":
+                zo.writestr("package/services/metadata/core-properties/abc123.psmdcp", data); continue
+            if i.filename == "_rels/.rels":
+                data = data.replace(b"docProps/core.xml", b"/package/services/metadata/core-properties/abc123.psmdcp")
+            if i.filename == "[Content_Types].xml":
+                data = data.replace(b"/docProps/core.xml", b"/package/services/metadata/core-properties/abc123.psmdcp")
+            zo.writestr(i.filename, data)
+    return out
+
+
+def test_existing_core_properties_part_is_reused_not_duplicated(tmp_path):
+    import zipfile
+    from crespoqa.core.docx_validate import check_output_package
+    from crespoqa.core.package import DocxPackage
+    src = _sdk_style_docx(tmp_path)
+    pkg = DocxPackage(src)
+    pkg.set_property("Author", "Ana Ruiz")
+    out = tmp_path / "out.docx"; pkg.save(out)
+    assert check_output_package(out) == []
+    with zipfile.ZipFile(out) as z:
+        assert not z.read("_rels/.rels").count(b"core-properties\"") > 1
+        assert "docProps/core.xml" not in z.namelist()
+        assert b"Ana Ruiz" in z.read("package/services/metadata/core-properties/abc123.psmdcp")
+
+
+def test_package_check_catches_a_second_core_properties_entry(tmp_path):
+    import zipfile
+    from crespoqa.core.docx_validate import check_output_package
+    src = _sdk_style_docx(tmp_path)
+    bad = tmp_path / "bad.docx"
+    with zipfile.ZipFile(src) as zin, zipfile.ZipFile(bad, "w") as zo:
+        for i in zin.infolist():
+            data = zin.read(i.filename)
+            if i.filename == "_rels/.rels":
+                data = data.replace(b"</Relationships>", b'<Relationship Id="rIdX" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>')
+            zo.writestr(i.filename, data)
+    assert any("two core-properties" in p for p in check_output_package(bad))
+
+
+def test_render_copy_unwraps_nested_body(tmp_path):
+    import zipfile
+    from lxml import etree
+    from crespoqa.core.pages import render_copy
+    from crespoqa.core.xmlutil import w
+    src = _sdk_style_docx(tmp_path)
+    nested = tmp_path / "nested.docx"
+    with zipfile.ZipFile(src) as zin, zipfile.ZipFile(nested, "w") as zo:
+        for i in zin.infolist():
+            data = zin.read(i.filename)
+            if i.filename == "word/document.xml":
+                r = etree.fromstring(data); body = r.find(w("body"))
+                inner = etree.Element(w("body"))
+                for c in [c for c in body if c.tag != w("sectPr")]:
+                    inner.append(c)
+                body.insert(0, inner)
+                data = etree.tostring(r)
+            zo.writestr(i.filename, data)
+    flat = tmp_path / "flat.docx"
+    assert render_copy(nested, flat) is True
+    with zipfile.ZipFile(flat) as z:
+        body = etree.fromstring(z.read("word/document.xml")).find(w("body"))
+    assert not list(body.iter(w("body"))) or all(b is body for b in body.iter(w("body")))
+    assert body[-1].tag == w("sectPr") and any(c.tag == w("p") for c in body)

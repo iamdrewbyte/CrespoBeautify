@@ -90,33 +90,98 @@ def find_soffice(configured: str = "") -> str | None:
     return shutil.which("soffice") or shutil.which("libreoffice")
 
 
+def render_copy(src: Path, dst: Path, blank_charts: bool = False) -> bool:
+    """Write a render-only copy of `src` that LibreOffice can load. Never touches the edited document.
+    - Some report generators wrap content in <w:body> inside <w:body>: Word reads that, LibreOffice shows an empty
+      page. The inner bodies are unwrapped (same content, same order).
+    - blank_charts: a chart LibreOffice cannot import stops the whole file loading; its frame is kept but emptied.
+    True when the copy differs from the source."""
+    import zipfile
+    from .xmlutil import w
+    A, C = "{http://schemas.openxmlformats.org/drawingml/2006/main}", "{http://schemas.openxmlformats.org/drawingml/2006/chart}"
+    with zipfile.ZipFile(src) as zin:
+        root = etree.fromstring(zin.read("word/document.xml"))
+        body = root.find(w("body"))
+        nested = [b for b in body.iter(w("body")) if b is not body] if body is not None else []
+        changed = bool(nested)
+        for inner in reversed(nested):                    # innermost first
+            parent = inner.getparent()
+            at = parent.index(inner)
+            for child in list(inner):
+                parent.insert(at, child)
+                at += 1
+            parent.remove(inner)
+        if nested:
+            # Section properties directly in the body are only valid at the very end: earlier ones (they close a
+            # section) go inside an empty paragraph, as Word writes them.
+            sects = [c for c in body if c.tag == w("sectPr")]
+            for sp in sects[:-1]:
+                at = body.index(sp)
+                body.remove(sp)
+                para = etree.Element(w("p"))
+                etree.SubElement(para, w("pPr")).append(sp)
+                body.insert(at, para)
+            if sects:
+                body.remove(sects[-1])
+                body.append(sects[-1])
+        if blank_charts:
+            for gd in list(root.iter(A + "graphicData")):
+                if gd.find(C + "chart") is not None:
+                    for c in list(gd):
+                        gd.remove(c)
+                    changed = True
+        if not changed:
+            return False
+        data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+        with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as out:
+            for info in zin.infolist():
+                out.writestr(info.filename, data if info.filename == "word/document.xml" else zin.read(info.filename))
+    return True
+
+
+def _convert(docx: Path, soffice: str, timeout: int, tmp: str, pdftotext: str) -> list[str] | None:
+    profile = Path(tmp, "profile").as_uri()
+    proc = subprocess.Popen(
+        [soffice, "--headless", "--norestore", f"-env:UserInstallation={profile}",
+         "--convert-to", "pdf", "--outdir", tmp, str(docx)],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+    )
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return None
+    finally:
+        _kill_group(proc)  # soffice may spawn soffice.bin; always reap our own process group
+    pdf = Path(tmp, docx.stem + ".pdf")
+    if not pdf.exists():
+        return None
+    res = subprocess.run([pdftotext, "-layout", str(pdf), "-"], capture_output=True, timeout=60)
+    pages = res.stdout.decode("utf-8", "ignore").split("\f")
+    if pages and not pages[-1].strip():
+        pages.pop()
+    if not any(p.strip() for p in pages):
+        return None                                       # a blank render is not a layout: say so instead of guessing
+    return pages
+
+
 def render_page_texts(docx: Path, soffice: str, timeout: int) -> list[str] | None:
     """Convert to PDF in a throwaway dir and return the text of each page, or None."""
     pdftotext = shutil.which("pdftotext")
     if not pdftotext:
         return None
     with tempfile.TemporaryDirectory(prefix="crespoqa_lo_") as tmp:
-        profile = Path(tmp, "profile").as_uri()
-        proc = subprocess.Popen(
-            [soffice, "--headless", "--norestore", f"-env:UserInstallation={profile}",
-             "--convert-to", "pdf", "--outdir", tmp, str(docx)],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
-        )
-        try:
-            proc.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            return None
-        finally:
-            _kill_group(proc)  # soffice may spawn soffice.bin; always reap our own process group
-        pdf = Path(tmp, docx.stem + ".pdf")
-        if not pdf.exists():
-            return None
-        res = subprocess.run([pdftotext, "-layout", str(pdf), "-"], capture_output=True, timeout=60)
-        text = res.stdout.decode("utf-8", "ignore")
-        pages = text.split("\f")
-        if pages and not pages[-1].strip():
-            pages.pop()
-        return pages
+        for i, blank in enumerate((False, True)):         # second try: leave out charts LibreOffice cannot load
+            copy = Path(tmp, f"render{i}_" + docx.name)
+            try:
+                made = render_copy(docx, copy, blank_charts=blank)
+            except Exception:
+                made = False
+            if blank and not made:
+                break                                     # nothing different to try
+            pages = _convert(copy if made else docx, soffice, timeout, tmp, pdftotext)
+            if pages:
+                return pages
+        return None
 
 
 def _kill_group(proc: subprocess.Popen) -> None:

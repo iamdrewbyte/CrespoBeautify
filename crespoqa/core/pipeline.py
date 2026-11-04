@@ -11,7 +11,7 @@ from ..templates_store import models as m
 from .change_report import DocReport, TaskResult
 from .config import Settings, load_settings
 from .context import Ctx, RunForm
-from .docx_validate import InvalidDocx, validate_docx
+from .docx_validate import InvalidDocx, check_output_package, validate_docx
 from .logging_setup import JobLogger
 from .package import DocxPackage
 from .locate import locate, stranded_labels
@@ -193,6 +193,11 @@ def process_document(
                 raise InvalidDocx("The output would overwrite the original file. Choose a different output folder.")
             try:
                 pkg.save(out_dir / out_name)
+                bad = [b for b in check_output_package(out_dir / out_name) if b not in check_output_package(src)]   # only what this tool introduced
+                if bad:
+                    (out_dir / out_name).unlink(missing_ok=True)
+                    log.error("Output failed the package check: " + "; ".join(bad))
+                    raise InvalidDocx("The tool could not produce a file Word will open (" + "; ".join(bad[:2]) + "). Nothing was saved, your original is untouched.")
             except PermissionError:
                 raise InvalidDocx(f"Cannot write '{out_name}'. It is probably open in Word or another program: close it and run again.") from None
     except InvalidDocx as exc:

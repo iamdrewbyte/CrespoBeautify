@@ -21,6 +21,7 @@ from ..templates_store import models as m
 from ..templates_store.ai_defaults import defaults_for
 
 log = logging.getLogger("crespoqa.jobs")
+ORIGINALS_DIR = "CrespoBeautify_originals"
 
 
 @dataclass
@@ -228,6 +229,14 @@ class JobManager:
                 dest.mkdir(parents=True, exist_ok=True)
                 tmp = dest / f".{name}.crespoqa.tmp"
                 tmp.write_bytes((out_dir / name).read_bytes())
+                if (dest / name).exists():                    # keep the file being replaced: it is the untouched original
+                    keep = dest / ORIGINALS_DIR
+                    keep.mkdir(exist_ok=True)
+                    old = keep / name
+                    if old.exists():                          # never overwrite an earlier backup
+                        old = keep / f"{Path(name).stem}_{time.strftime('%Y%m%d-%H%M%S')}{Path(name).suffix}"
+                    shutil.copy2(dest / name, old)
+                    entry["backup"] = f"{ORIGINALS_DIR}/{old.name}"
                 os.replace(tmp, dest / name)
                 entry["ok"] = True
             except PermissionError:

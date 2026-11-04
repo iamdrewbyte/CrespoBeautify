@@ -31,8 +31,21 @@ def test_files_replace_same_named_files_in_save_dir(settings, sample_docx, tmp_p
     assert [x["ok"] for x in snap["saved"]] == [True, True]
     assert (folder / "Report T.docx").read_bytes()[:2] == b"PK"          # replaced in place, same name
     assert (folder / "Report E.docx").exists() and (folder / "unrelated.txt").read_text() == "keep me"
+    assert (folder / "CrespoBeautify_originals" / "Report T.docx").read_bytes() == b"OLD RAW FILE"   # the replaced file is kept
     assert not [p for p in folder.iterdir() if p.name.endswith(".tmp")]    # no temp debris
     assert not any("(1)" in p.name or "QA_Processed" in p.name for p in folder.iterdir())
+
+
+def test_earlier_backup_is_never_overwritten(settings, sample_docx, tmp_path):
+    folder = tmp_path / "Downloads"
+    (folder / "CrespoBeautify_originals").mkdir(parents=True)
+    (folder / "CrespoBeautify_originals" / "Report T.docx").write_bytes(b"FIRST ORIGINAL")
+    (folder / "Report T.docx").write_bytes(b"SECOND")
+    app = create_app(replace(settings, auth_enabled=False, save_dir=str(folder)))
+    with TestClient(app, headers=H) as c:
+        _run(c, sample_docx)
+    assert (folder / "CrespoBeautify_originals" / "Report T.docx").read_bytes() == b"FIRST ORIGINAL"
+    assert any(p.read_bytes() == b"SECOND" for p in (folder / "CrespoBeautify_originals").iterdir())
 
 
 def test_nothing_written_when_save_dir_unset(settings, sample_docx, tmp_path):

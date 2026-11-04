@@ -72,8 +72,20 @@ class DocxPackage:
         return {r.get("Id"): r.get("Target") for r in self.xml(name)}
 
     # -- properties --------------------------------------------------
+    def _part_for(self, rel_type: str, default: str) -> str:
+        """Part name a package relationship of this type points at, so an existing part is reused even when it
+        has an unusual name (e.g. /package/services/metadata/core-properties/<guid>.psmdcp). A package may hold only
+        one core-properties relationship; adding a second one makes Word refuse to open the file."""
+        if self.has("_rels/.rels"):
+            for r in self.xml("_rels/.rels"):
+                if r.get("Type") == rel_type and r.get("TargetMode") != "External":
+                    target = (r.get("Target") or "").lstrip("/")
+                    if target and self.has(target):
+                        return target
+        return default
+
     def _ensure_core(self) -> etree._Element:
-        name = "docProps/core.xml"
+        name = self._part_for(CORE_REL, "docProps/core.xml")
         if not self.has(name):
             root = etree.Element(f"{{{CP_NS}}}coreProperties", nsmap={"cp": CP_NS, "dc": DC_NS})
             self._xml[name] = root
@@ -82,7 +94,7 @@ class DocxPackage:
         return self.xml(name)
 
     def _ensure_custom(self) -> etree._Element:
-        name = "docProps/custom.xml"
+        name = self._part_for(CUSTOM_REL, "docProps/custom.xml")
         if not self.has(name):
             root = etree.Element(f"{{{CUSTOM_NS}}}Properties", nsmap={None: CUSTOM_NS, "vt": VT_NS})
             self._xml[name] = root
@@ -104,12 +116,14 @@ class DocxPackage:
 
     def get_property(self, name: str) -> str | None:
         key = name.lower()
-        if key in _BUILTIN and self.has("docProps/core.xml"):
+        core = self._part_for(CORE_REL, "docProps/core.xml")
+        custom = self._part_for(CUSTOM_REL, "docProps/custom.xml")
+        if key in _BUILTIN and self.has(core):
             ns, tag = _BUILTIN[key]
-            el = self.xml("docProps/core.xml").find(f"{{{ns}}}{tag}")
+            el = self.xml(core).find(f"{{{ns}}}{tag}")
             return el.text if el is not None else None
-        if self.has("docProps/custom.xml"):
-            for p in self.xml("docProps/custom.xml"):
+        if self.has(custom):
+            for p in self.xml(custom):
                 if (p.get("name") or "").lower() == key:
                     return "".join(p.itertext())
         return None
