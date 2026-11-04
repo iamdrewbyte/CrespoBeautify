@@ -60,7 +60,7 @@ def test_text_save_creates_version_via_api(settings):
         c.post("/api/login", json={"username": "ed", "password": "editor-pass-1"})
         t = c.get("/api/templates").json()["templates"][0]
         got = c.get(f"/api/templates/{t['id']}").json()
-        assert got["text"].startswith("# CrespoQA template")
+        assert got["text"].startswith("# CrespoBeautify template")
         r = c.put(f"/api/templates/{t['id']}", json={"name": t["name"], "text": got["text"].replace("period: remove", "period: fill")})
         assert r.json() == {"version": 2}
         assert c.get(f"/api/templates/{t['id']}").json()["steps"][0]["params"]["period_label_action"] == "fill"

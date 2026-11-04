@@ -1,5 +1,5 @@
 [Unit]
-Description=CrespoQA report QA service
+Description=CrespoBeautify report QA service
 After=network-online.target ollama.service
 Wants=network-online.target
 

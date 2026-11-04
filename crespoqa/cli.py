@@ -1,4 +1,4 @@
-"""CrespoQA command line: single file or a folder of reports."""
+"""CrespoBeautify command line: single file or a folder of reports."""
 from __future__ import annotations
 
 import argparse

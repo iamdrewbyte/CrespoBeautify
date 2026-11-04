@@ -155,7 +155,7 @@ def create_app(settings: Settings | None = None, store: Store | None = None, llm
         yield
         manager.stop()
 
-    app = FastAPI(title="CrespoQA", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+    app = FastAPI(title="CrespoBeautify", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.manager, app.state.store, app.state.sessions = manager, store, sessions
 
     @app.exception_handler(StoreError)
@@ -447,7 +447,7 @@ def create_app(settings: Settings | None = None, store: Store | None = None, llm
         z = manager.make_zip(job) if job.status == "done" else None
         if z is None:
             raise HTTPException(404, "File not available (already downloaded or expired).")
-        resp = FileResponse(z, filename="CrespoQA_reports.zip", media_type="application/zip")
+        resp = FileResponse(z, filename="CrespoBeautify_reports.zip", media_type="application/zip")
         resp.background = BackgroundTask(manager.mark_all_downloaded, job)
         return resp
 

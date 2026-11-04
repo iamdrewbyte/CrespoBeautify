@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copy CrespoQA from this machine to the Ubuntu server and install it there.
+# Copy CrespoBeautify from this machine to the Ubuntu server and install it there.
 #
 #   deploy/transfer.sh user@server                      code + installer
 #   deploy/transfer.sh user@server --with-templates     also your templates and their versions (never accounts)

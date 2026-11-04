@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start CrespoQA for local testing: local Qwen (if installed) + web app on http://localhost:8000
+# Start CrespoBeautify for local testing: local Qwen (if installed) + web app on http://localhost:8000
 set -euo pipefail
 cd "$(dirname "$0")"
 export PATH="$HOME/.local/ollama/bin:$PATH"

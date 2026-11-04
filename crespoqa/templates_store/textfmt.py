@@ -10,7 +10,7 @@ FIELDS = {"consultant": "consultant", "reviewer": "reviewer", "client": "client"
 FIELD_OUT = {"consultant": "consultant", "reviewer": "reviewer", "client": "client", "report_date": "date", "period": "period"}
 
 HEADER = (
-    "# CrespoQA template. One step per line, run from top to bottom.\n"
+    "# CrespoBeautify template. One step per line, run from top to bottom.\n"
     "# Put the word  off  at the start of a line to switch that step off. Lines starting with # are notes.\n"
 )
 

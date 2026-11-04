@@ -54,10 +54,10 @@ class DocReport:
         mode = " (dry run, no file produced)" if self.dry_run else ""
         err = f'<p class="warn">Failed: {e(self.error)}</p>' if self.error else ""
         return (
-            "<!doctype html><meta charset='utf-8'><title>CrespoQA Change Report</title>"
+            "<!doctype html><meta charset='utf-8'><title>CrespoBeautify Change Report</title>"
             "<style>body{background:#0f1218;color:#e6e9ef;font:15px system-ui;max-width:760px;margin:2rem auto;padding:0 1rem}"
             "h1,h3{margin:.4em 0}small{color:#8b93a5}.warn{color:#f5b84a}li{margin:.25em 0}</style>"
-            f"<h1>CrespoQA Change Report{e(mode)}</h1>"
+            f"<h1>CrespoBeautify Change Report{e(mode)}</h1>"
             f"<p>File: {e(self.input_name)} &middot; Template: {e(self.template)} v{self.template_version} "
             f"&middot; Job {e(self.job_id)}<br>Processed by: {e(self.processed_by or 'n/a')} &middot; "
             f"Status: <b>{e(self.status)}</b> &middot; {self.duration_s:.1f}s</p>{err}{''.join(rows)}"

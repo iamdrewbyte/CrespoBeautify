@@ -1,4 +1,4 @@
-# CrespoQA
+# CrespoBeautify
 
 Cleans up Word (.docx) security reports and reviews them with a local AI. The AI only flags; it never edits.
 

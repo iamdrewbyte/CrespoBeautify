@@ -15,6 +15,7 @@ from pathlib import Path
 from ..core.change_report import DocReport
 from ..core.config import Settings
 from ..core.context import RunForm
+from ..core.explain import explain_report
 from ..core.pipeline import plan_for, process_document
 from ..review import ReviewError, ReviewState, extract_for_review, run_review
 from ..templates_store import models as m
@@ -68,7 +69,8 @@ class Job:
             "reports": [
                 {"index": i, "input_name": r.input_name, "report_type": r.report_type, "status": r.status,
                  "error": r.error, "template": r.template, "template_version": r.template_version,
-                 "output_name": r.output_name, "locations": r.locations, "tasks": [
+                 "output_name": r.output_name, "locations": r.locations,
+                 "problems": explain_report(r.error, r.tasks, r.locations), "tasks": [
                      {"key": t.key, "title": t.title, "status": t.status, "changes": t.changes, "warnings": t.warnings}
                      for t in r.tasks]}
                 for i, r in enumerate(self.reports)],
@@ -148,7 +150,7 @@ class JobManager:
         """All finished files in one archive (docx is already compressed, so the archive is just stored)."""
         if job.files_deleted or not job.outputs:
             return None
-        z = job.dir / "CrespoQA_reports.zip"
+        z = job.dir / "CrespoBeautify_reports.zip"
         if not z.exists():
             tmp = job.dir / "zip.part"
             with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as zf:

@@ -187,6 +187,28 @@
     return card;
   }
 
+  // Plain-language reasons for every error / warning / manual check, grouped by file (rule-based, no report content)
+  function renderWhy(snap) {
+    const box = $("#why"), list = $("#why-list"); list.replaceChildren();
+    const withProblems = snap.reports.filter(r => (r.problems || []).length);
+    box.hidden = !withProblems.length;
+    withProblems.forEach(r => {
+      const g = el("div", "wgroup"); const gh = el("div", "wfile", r.input_name); gh.title = r.input_name; g.append(gh);
+      r.problems.forEach(p => {
+        const d = el("details", "wi " + p.level); d.open = p.level === "error";
+        const s = el("summary"); s.append(el("span", "wl " + p.level, p.level === "error" ? "Error" : p.level === "warning" ? "Warning" : "Check"),
+          el("span", "wtitle", p.title + (p.page ? ` (${String(p.page).includes(",") ? "pages" : "page"} ${p.page})` : "")));
+        const b = el("div", "wbody");
+        const why = el("p"); why.append(el("strong", null, "Why: "), p.why);
+        const fix = el("p"); fix.append(el("strong", null, "What to do: "), p.fix);
+        b.append(why, fix);
+        if (p.detail && p.detail !== p.title) b.append(el("p", "wdetail", p.detail));
+        d.append(s, b); g.append(d);
+      });
+      list.append(g);
+    });
+  }
+
   let finished = false;
   async function finish(jobId, dry) {
     if (finished) return; finished = true;
@@ -221,9 +243,10 @@
       snap.reports.forEach(rep => docsBox.append(reportCard(rep, snap, jobId)));
     }
 
+    renderWhy(snap);
     const sv = $("#saved"); sv.replaceChildren(); sv.hidden = !(snap.saved && snap.saved.length);
     const bad = (snap.saved || []).filter(x => !x.ok), good = (snap.saved || []).filter(x => x.ok);
-    if (good.length) sv.append(el("div", null, good.length === 1 ? `Saved over the old file: ${good[0].folder}/${good[0].name}` : `Saved ${good.length} files over the old ones in ${good[0].folder}`));
+    if (good.length) sv.append(el("div", null, good.length === 1 ? `Saved over the old file: ${good[0].folder}/${good[0].name} (the old one is kept in ${good[0].folder}/CrespoBeautify_originals)` : `Saved ${good.length} files over the old ones in ${good[0].folder} (old versions kept in CrespoBeautify_originals)`));
     bad.forEach(x => sv.append(el("div", "alert", `${x.name}: ${x.error}`)));
 
     const dl = $("#downloads"); dl.replaceChildren();
@@ -232,7 +255,7 @@
       const click = (u, n) => { const a = document.createElement("a"); a.href = u; if (n) a.download = n; document.body.append(a); a.click(); a.remove(); };
       if (urls.length > 2) {
         const z = el("button", "primary", `Download all as ZIP (${urls.length} files)`); z.type = "button";
-        z.addEventListener("click", () => click(`/api/jobs/${jobId}/zip`, "CrespoQA_reports.zip")); dl.append(z);
+        z.addEventListener("click", () => click(`/api/jobs/${jobId}/zip`, "CrespoBeautify_reports.zip")); dl.append(z);
       } else {
         const both = el("button", "primary", urls.length > 1 ? "Download both files" : "Download file"); both.type = "button";
         both.addEventListener("click", () => urls.forEach(([n, u], i) => setTimeout(() => click(u, n), i * 700)));

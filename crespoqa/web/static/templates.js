@@ -41,7 +41,7 @@
     $("#new").hidden = !isEditor;
   }
 
-  const NEW_TEXT = `# CrespoQA template. One step per line, run from top to bottom.
+  const NEW_TEXT = `# CrespoBeautify template. One step per line, run from top to bottom.
 period: remove "Period:"
 toc
 details: title "Document Details" ; page 4 ; set author = consultant

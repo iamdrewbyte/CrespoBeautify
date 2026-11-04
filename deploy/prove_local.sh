@@ -24,7 +24,7 @@ pass() { RESULTS+=("PASS  $1"); }
 fail() { RESULTS+=("FAIL  $1"); }
 hr()   { printf '\n==== %s\n' "$1"; }
 
-printf 'CrespoQA local-AI proof\nmachine : %s\ndate    : %s\nmodel   : %s\n' "$(hostname)" "$(date -u +%FT%TZ)" "$MODEL"
+printf 'CrespoBeautify local-AI proof\nmachine : %s\ndate    : %s\nmodel   : %s\n' "$(hostname)" "$(date -u +%FT%TZ)" "$MODEL"
 
 if [ "$DOCKER" = 1 ]; then
   PROJECT="${COMPOSE_PROJECT_NAME:-crespoqa}"

@@ -47,7 +47,7 @@ def job_dir_exists(client, job_id):
 
 
 def test_index_and_services(client):
-    assert "CrespoQA" in client.get("/").text
+    assert "CrespoBeautify" in client.get("/").text
     assert client.get("/api/services").json()["services"] == ["VA", "WebApp"]
     assert client.get("/static/app.js").status_code == 200
 
@@ -172,3 +172,17 @@ def test_bulk_bad_file_fails_only_itself_and_duplicates_stay_distinct(client, sa
     snap = wait(client, r.json()["job_id"])
     assert len(snap["outputs"]) == 2 and len(set(snap["outputs"])) == 2
     assert [x["status"] for x in snap["reports"]].count("failed") == 1
+
+
+def test_problems_are_explained_in_plain_language():
+    from crespoqa.core.change_report import TaskResult
+    from crespoqa.core.explain import explain_report
+    t = TaskResult("x", "Contents page numbers", warnings=["7 contents row(s) could not be placed; check them in Word (select, F9)."])
+    got = explain_report("The tool could not produce a file Word will open (the package has two core-properties entries). Nothing was saved.", [t],
+                         [dict(page=4, what="'Description' is the last line of this page: its content may be cut off (cell takeover). Check it")])
+    titles = [g["title"] for g in got]
+    assert "The tool refused to save a file Word may not open" in titles and "Page numbers could not be confirmed" in titles
+    assert any(g["level"] == "check" and g["page"] == "4" for g in got)
+    assert all(g["why"] and g["fix"] for g in got)
+    assert explain_report(None, [], []) == []
+    assert explain_report("KeyError: 'x'", [], [])[0]["title"] == "The report could not be processed"
