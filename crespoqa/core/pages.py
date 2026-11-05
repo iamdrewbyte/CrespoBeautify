@@ -84,10 +84,40 @@ def body_page_map(body: etree._Element) -> list[tuple[etree._Element, int]]:
     return out
 
 
+_WIN = os.name == "nt"
+
+
+def _program_dirs() -> list[Path]:
+    return [Path(os.environ[k]) for k in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA") if os.environ.get(k)]
+
+
 def find_soffice(configured: str = "") -> str | None:
     if configured and Path(configured).exists():
         return configured
-    return shutil.which("soffice") or shutil.which("libreoffice")
+    found = shutil.which("soffice") or shutil.which("libreoffice")
+    if found or not _WIN:
+        return found
+    for base in _program_dirs():                       # the Windows installer does not put LibreOffice on PATH
+        for rel in ("LibreOffice/program/soffice.exe", "Programs/LibreOffice/program/soffice.exe"):
+            if (base / rel).exists():
+                return str(base / rel)
+    return None
+
+
+def find_pdftotext() -> str | None:
+    """pdftotext from Poppler: CRESPOQA_PDFTOTEXT, then PATH, then the usual Windows places."""
+    configured = os.environ.get("CRESPOQA_PDFTOTEXT", "")
+    if configured and Path(configured).exists():
+        return configured
+    found = shutil.which("pdftotext")
+    if found or not _WIN:
+        return found
+    roots = [Path(os.environ[k]) for k in ("LOCALAPPDATA", "ProgramFiles", "USERPROFILE") if os.environ.get(k)]
+    for base in roots:
+        for pat in ("Microsoft/WinGet/Packages/*oppler*/**/pdftotext.exe", "poppler*/**/pdftotext.exe", "CrespoBeautify/poppler/**/pdftotext.exe"):
+            for hit in base.glob(pat):
+                return str(hit)
+    return None
 
 
 def render_copy(src: Path, dst: Path, blank_charts: bool = False) -> bool:
@@ -144,7 +174,8 @@ def _convert(docx: Path, soffice: str, timeout: int, tmp: str, pdftotext: str) -
     proc = subprocess.Popen(
         [soffice, "--headless", "--norestore", f"-env:UserInstallation={profile}",
          "--convert-to", "pdf", "--outdir", tmp, str(docx)],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        **({"creationflags": subprocess.CREATE_NO_WINDOW} if _WIN else {"start_new_session": True}),
     )
     try:
         proc.wait(timeout=timeout)
@@ -166,7 +197,7 @@ def _convert(docx: Path, soffice: str, timeout: int, tmp: str, pdftotext: str) -
 
 def render_page_texts(docx: Path, soffice: str, timeout: int) -> list[str] | None:
     """Convert to PDF in a throwaway dir and return the text of each page, or None."""
-    pdftotext = shutil.which("pdftotext")
+    pdftotext = find_pdftotext()
     if not pdftotext:
         return None
     with tempfile.TemporaryDirectory(prefix="crespoqa_lo_") as tmp:
@@ -185,10 +216,13 @@ def render_page_texts(docx: Path, soffice: str, timeout: int) -> list[str] | Non
 
 
 def _kill_group(proc: subprocess.Popen) -> None:
-    try:
-        os.killpg(proc.pid, 9)
-    except (ProcessLookupError, PermissionError):
-        pass
+    if _WIN:                                           # soffice.exe starts soffice.bin: end the whole tree
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+    else:
+        try:
+            os.killpg(proc.pid, 9)
+        except (ProcessLookupError, PermissionError):
+            pass
     try:
         proc.wait(timeout=5)
     except subprocess.TimeoutExpired:
