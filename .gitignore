@@ -14,3 +14,8 @@ out_*/
 inspect_output*
 # documentation stays local
 docs/
+
+# built installers and archives: share through SharePoint, not GitHub
+*.exe
+*.zip
+Setup-CrespoBeautify/Output/
