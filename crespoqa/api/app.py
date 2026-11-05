@@ -216,6 +216,10 @@ def create_app(settings: Settings | None = None, store: Store | None = None, llm
 
     app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
 
+    @app.get("/favicon.ico", include_in_schema=False)          # browsers ask for this path by default
+    def favicon():
+        return FileResponse(WEB_DIR / "static" / "favicon.ico", media_type="image/x-icon")
+
     # -- session -----------------------------------------------------
     @app.post("/api/login")
     def login(body: LoginBody, request: Request):
