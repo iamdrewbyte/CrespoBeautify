@@ -153,7 +153,7 @@ Push-Location $app
 $test = & "$venv\Scripts\python.exe" -c "from crespoqa.core.config import load_settings; from crespoqa.core.pages import find_soffice, find_pdftotext; import crespoqa.api.app; s=load_settings(); print('app ok'); print('soffice', bool(find_soffice(s.soffice))); print('pdftotext', bool(find_pdftotext()))" 2>&1
 Pop-Location
 $test | ForEach-Object { Write-Host "      $_" }
-if (-not ($test -match 'app ok')) { Fail 'The app did not start. Send the log file to the tool owner: ' + $log }
+if (-not ($test -match 'app ok')) { Fail ("The app did not start. Send the log file to the tool owner: " + $log) }
 Ok 'self-test passed'
 
 Write-Host ""
