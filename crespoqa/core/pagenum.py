@@ -79,16 +79,35 @@ def contents_labels(pkg: DocxPackage) -> dict[str, str]:
     return out
 
 
+def _line_key(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", text)).strip().casefold()
+
+
 def pages_from_layout(pkg: DocxPackage, page_texts: list[str], labels: dict[str, str] | None = None) -> dict[str, int]:
     """bookmark name -> 1-based rendered page. Sections are in document order, so the search never moves backwards."""
     body = pkg.document.find(w("body"))
     labels = labels or {}
     page_tokens = [set(_tokens(t)) for t in page_texts]
+    page_lines = [{_line_key(ln) for ln in t.splitlines() if ln.strip()} for t in page_texts]
     result: dict[str, int] = {}
     prev = 1
     for bm in body.iter(w("bookmarkStart")):
         name = bm.get(w("name")) or ""
         if name in result:
+            continue
+        # strictest evidence first: the heading standing alone on a line of a page (a word that merely appears in the
+        # text of an earlier section, e.g. "Medium", must not pull a heading onto that page)
+        heads = [labels.get(name) or "", " ".join(_following_text(bm, body, 60).split())]
+        hit = None
+        for h in heads:
+            k = _line_key(h)
+            if len(k) >= 6:
+                hit = next((i for i in range(prev - 1, len(page_lines)) if k in page_lines[i]), None)
+                if hit is not None:
+                    break
+        if hit is not None:
+            result[name] = hit + 1
+            prev = hit + 1
             continue
         anchors = [list(dict.fromkeys(_tokens(_following_text(bm, body, lim))))[:14] for lim in (40, 90)]
         if labels.get(name):

@@ -195,10 +195,24 @@ def _convert(docx: Path, soffice: str, timeout: int, tmp: str, pdftotext: str) -
     return pages
 
 
-def render_page_texts(docx: Path, soffice: str, timeout: int) -> list[str] | None:
-    """Convert to PDF in a throwaway dir and return the text of each page, or None."""
+class Pages(list):
+    """Page texts plus which engine drew them ('word' or 'libreoffice')."""
+    engine = "libreoffice"
+
+
+def render_page_texts(docx: Path, soffice: str | None, timeout: int) -> list[str] | None:
+    """Page texts of the document as laid out by Microsoft Word when it is installed (exact page numbers), else by
+    LibreOffice (approximate). None if neither can do it."""
     pdftotext = find_pdftotext()
     if not pdftotext:
+        return None
+    from .wordlayout import render_word_texts, word_available
+    if word_available():
+        pages = render_word_texts(docx, timeout, pdftotext)
+        if pages:
+            out = Pages(pages); out.engine = "word"
+            return out
+    if not soffice:
         return None
     with tempfile.TemporaryDirectory(prefix="crespoqa_lo_") as tmp:
         for i, blank in enumerate((False, True)):         # second try: leave out charts LibreOffice cannot load
@@ -211,7 +225,7 @@ def render_page_texts(docx: Path, soffice: str, timeout: int) -> list[str] | Non
                 break                                     # nothing different to try
             pages = _convert(copy if made else docx, soffice, timeout, tmp, pdftotext)
             if pages:
-                return pages
+                return Pages(pages)
         return None
 
 

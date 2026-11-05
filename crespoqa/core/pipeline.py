@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import shutil
 import time
 import uuid
@@ -17,8 +18,9 @@ from .package import DocxPackage
 from .locate import locate, stranded_labels
 from .pagenum import _plan_contents, contents_labels, pages_from_layout, refresh_page_numbers
 from .pages import find_soffice, render_page_texts
+from .wordlayout import word_available
 from .steps import fields_steps, tables, text
-from .xmlutil import w
+from .xmlutil import para_text, w
 
 RUNNERS = {
     "period_removal": text.period_removal,
@@ -52,12 +54,59 @@ def _final_layout(ctx, pkg, work, use_layout, settings):
         return ctx.extras["layout_texts"]
     texts = None
     soffice = find_soffice(settings.soffice) if use_layout else None
-    if soffice:
+    if soffice or (use_layout and word_available()):
         tmp = work / "layout_probe.docx"
         pkg.save(tmp)
         texts = render_page_texts(tmp, soffice, min(settings.doc_timeout_s, 120)) or None
     ctx.extras["layout_texts"] = texts
     return texts
+
+
+def _norm_text(s: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^\w]+", " ", s)).strip().casefold()
+
+
+def _rescue_clipped_rows(ctx, pkg, work, use_layout, settings, log, res_changes: list) -> None:
+    """Safety net against losing text. A row set not to split but taller than the page is cut off by Word. After
+    the edits the document is laid out (by Word when available); any row we locked whose last paragraph is missing
+    from the rendered pages is unlocked again. Repeats once, because moving rows can change what fits."""
+    locked = ctx.extras.get("cantsplit_rows") or []
+    if not locked or not use_layout:
+        return
+    unlocked = 0
+    for _round in range(2):
+        ctx.extras.pop("layout_texts", None)
+        texts = _final_layout(ctx, pkg, work, use_layout, settings)
+        if not texts:
+            return
+        whole = _norm_text(" ".join(texts))
+        clipped = []
+        for tr in locked:
+            if tr.getparent() is None:
+                continue
+            paras = [para_text(p).strip() for p in tr.iter(w("p"))]
+            real = [p for p in paras if len(_norm_text(p)) >= 12]
+            if len(real) < 3:
+                continue                                            # a short row cannot be taller than a page
+            # the same sentence can repeat inside a row (e.g. one solution per operating system), so test the JUNCTION of
+            # the last two paragraphs, which is unique to the true end of the row
+            key = (_norm_text(real[-2])[-30:] + " " + _norm_text(real[-1])[:30]).strip()
+            if key and key not in whole:
+                clipped.append(tr)
+        if not clipped:
+            break
+        for tr in clipped:
+            trpr = tr.find(w("trPr"))
+            cs = trpr.find(w("cantSplit")) if trpr is not None else None
+            if cs is not None:
+                trpr.remove(cs)
+            locked.remove(tr)
+            unlocked += 1
+        pkg.touch("word/document.xml")
+    if unlocked:
+        ctx.extras.pop("layout_texts", None)                        # the layout changed: render again for the numbers
+        res_changes.append(f"Unlocked {unlocked} row(s) that Word would have cut off (their text did not fit on one page): they split across pages instead")
+        log.info(f"Unlocked {unlocked} clipped row(s)")
 
 
 def _apply_page_numbers(ctx, pkg, work, use_layout, settings, log) -> TaskResult:
@@ -75,7 +124,8 @@ def _apply_page_numbers(ctx, pkg, work, use_layout, settings, log) -> TaskResult
                 ctx.mark(f"Contents page numbers set ({len(plan['names'])} entries)", tbl)
     res.counts.update(source=0, set=st.contents_cells + st.updated)
     if st.source == "layout":
-        res.changes.append(f"Page numbers read from a rendered layout of the finished document ({len(layout)} section(s) placed)")
+        eng = "Word's own layout" if getattr(texts, "engine", "") == "word" else "a LibreOffice layout (approximate: press F9 in Word to confirm)"
+        res.changes.append(f"Page numbers read from {eng} of the finished document ({len(layout)} section(s) placed)")
     elif st.source == "markers":
         res.changes.append("Page numbers estimated from Word's saved page markers (LibreOffice not available)")
         res.warnings.append("These numbers are approximate. In Word, select the contents and press F9 to make them exact.")
@@ -140,12 +190,12 @@ def process_document(
         # Stage A: optional read-only layout render for cross-checks
         if use_layout:
             soffice = find_soffice(settings.soffice)
-            if soffice:
+            if soffice or word_available():
                 ctx.page_texts = render_page_texts(copy, soffice, min(settings.doc_timeout_s, 120))
                 if ctx.page_texts is None:
                     pre.warnings.append("Layout render failed or timed out; page cross-checks skipped.")
             else:
-                pre.changes.append("LibreOffice not available: page checks use Word's saved page markers only.")
+                pre.changes.append("Neither Word nor LibreOffice is available: page checks use Word's saved page markers only.")
         pre.changes.extend(pkg.repairs)
         report.tasks.append(pre)
 
@@ -167,6 +217,16 @@ def process_document(
             if progress:
                 progress(step.type, result.status)
             log.info(f"[Task {i}/{len(steps)}] {result.title} ... {result.status.upper()} {result.counts} ({time.monotonic() - t0:.2f}s)")
+
+        rescue_notes: list[str] = []
+        try:
+            _rescue_clipped_rows(ctx, pkg, work, use_layout, settings, log, rescue_notes)
+        except Exception as exc:                                    # a safety check must never fail the document
+            log.warning(f"Clipped-row check skipped ({type(exc).__name__})")
+        if rescue_notes:
+            fixed = TaskResult("text_safety", "Text safety check")
+            fixed.changes.extend(rescue_notes)
+            report.tasks.append(fixed)
 
         if ctx.extras.get("want_page_numbers"):
             report.tasks.append(_apply_page_numbers(ctx, pkg, work, use_layout, settings, log))

@@ -34,7 +34,7 @@ def _evaluate(instr: str, pkg: DocxPackage, filename: str) -> str | None:
     if kind in _SIMPLE:
         return pkg.get_property(kind) or ""
     if kind == "filename":
-        return filename
+        return filename[:-5] if filename.lower().endswith(".docx") else filename     # the name without ".docx"
     if kind == "docproperty" and arg:
         return pkg.get_property(arg)
     return None

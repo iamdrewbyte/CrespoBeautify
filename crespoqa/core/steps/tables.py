@@ -399,6 +399,19 @@ def keep_labels_with_content(root, labels: list[str]) -> list:
     return changed
 
 
+# A page holds roughly 45 lines. A row longer than this is treated as taller than a page.
+TALL_ROW_LINES = 36
+_CHARS_PER_LINE = 85
+
+
+def row_lines(tr) -> int:
+    """Rough height of a row in text lines: every paragraph is at least one line, long ones wrap."""
+    n = 0
+    for p in tr.iter(w("p")):
+        n += max(1, -(-len(para_text(p).strip()) // _CHARS_PER_LINE))
+    return n
+
+
 def table_fix(ctx: Ctx, params: m.TableFixParams) -> TaskResult:
     res = TaskResult("table_fix", "Fix table splits across pages")
     root = ctx.pkg.document
@@ -406,11 +419,19 @@ def table_fix(ctx: Ctx, params: m.TableFixParams) -> TaskResult:
     headers_added = 0
     breaks = 0
     tables = list(root.iter(w("tbl")))
+    tall = 0
     if params.cant_split:
+        locked = ctx.extras.setdefault("cantsplit_rows", [])
         for tr in root.iter(w("tr")):
             trpr = _row_trpr(tr)
             if trpr.find(w("cantSplit")) is None:
+                if row_lines(tr) > TALL_ROW_LINES:
+                    # taller than a page: Word cannot keep it whole and would CUT OFF the text that does not fit.
+                    # Leave it free to split across pages so nothing is lost.
+                    tall += 1
+                    continue
                 etree.SubElement(trpr, w("cantSplit")); added += 1
+                locked.append(tr)
             else:
                 existing += 1
     if params.header_repeat != "off":
@@ -452,6 +473,9 @@ def table_fix(ctx: Ctx, params: m.TableFixParams) -> TaskResult:
     res.counts.update(tables=len(tables), cant_split_added=added, cant_split_existing=existing,
                       headers_added=headers_added, page_breaks_removed=breaks, kept_together=kept, labels_kept=len(labelled))
     res.changes.append(f"Applied cantSplit to {added} row(s) ({existing} already had it) across {len(tables)} table(s)")
+    if tall:
+        res.changes.append(f"Left {tall} row(s) free to split across pages: they are taller than a page, and forcing them to stay whole would make Word cut off text")
+        res.counts["tall_rows_left_free"] = tall
     res.changes.append(f"Set repeat-header on {headers_added} table(s)")
     res.changes.append(f"Removed {breaks} empty manual page break(s) inside table cells")
     if params.keep_together_max_rows:

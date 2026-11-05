@@ -1,7 +1,11 @@
 import copy
 from pathlib import Path
 
+import os
+
 import pytest
+
+os.environ.setdefault("CRESPOQA_LAYOUT", "libreoffice")   # tests must not open Word on the developer's PC
 from docx import Document
 from docx.enum.text import WD_BREAK
 from docx.oxml import parse_xml
