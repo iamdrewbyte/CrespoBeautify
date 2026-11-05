@@ -29,6 +29,8 @@ _RULES: list[tuple[str, str, str, str]] = [
      "The tool numbers pages by drawing a copy of the report with LibreOffice. That copy could not be made or read, so the page numbers are not certain.", "In Word, click the contents table and press F9 (Update field > Page numbers only), then check the page list."),
     (r"is the last line of this page|cell takeover", "A Description may be split from its content",
      "A label such as Description is the last line of a page while its text continues on the next page.", "In Word select that Description row and press Shift+Enter (or Ctrl+Enter) so the section starts on the next page."),
+    (r"Long row left as it is", "A long entry was left as it is",
+     "This row (for example a Description with a very long Solution) is taller than one page, so it cannot be kept whole. The tool does not touch it, so no text is cut off; it simply splits across pages.", "Look at where it breaks in Word. Nothing needs fixing unless the break looks awkward."),
     (r"Table continues onto page", "A table runs over a page break", "The table is longer than the space left on the page.", "Check the break in Word: the header row repeats, but make sure no row is cut in half."),
     (r"Document Details table not found", "Document Details table not found",
      "The tool looks for the table by its title and by its place on page 2. Neither matched, so nothing was filled in.", "Fill the Document Details table by hand, or check the title of the table matches the template."),
@@ -66,7 +68,7 @@ def explain_report(error: str | None, tasks, locations) -> list[dict]:
         for wmsg in t.warnings:
             out.append(_entry("warning", wmsg))
     for loc in locations or []:
-        if re.search(r"last line of this page|Table continues onto page", loc.get("what", ""), re.I):
+        if re.search(r"last line of this page|Table continues onto page|Long row left as it is", loc.get("what", ""), re.I):
             out.append(_entry("check", loc["what"], page=loc.get("page")))
     merged: dict[tuple, dict] = {}
     for e in out:                                          # same problem on several pages: one entry listing the pages

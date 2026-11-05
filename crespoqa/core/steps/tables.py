@@ -429,6 +429,9 @@ def table_fix(ctx: Ctx, params: m.TableFixParams) -> TaskResult:
                     # taller than a page: Word cannot keep it whole and would CUT OFF the text that does not fit.
                     # Leave it free to split across pages so nothing is lost.
                     tall += 1
+                    tbl_up = next(tr.iterancestors(w("tbl")), None)
+                    if tbl_up is not None:
+                        ctx.mark("Long row left as it is (taller than a page): check where it splits across pages", tbl_up)
                     continue
                 etree.SubElement(trpr, w("cantSplit")); added += 1
                 locked.append(tr)

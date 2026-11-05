@@ -62,6 +62,9 @@ def _final_layout(ctx, pkg, work, use_layout, settings):
     return texts
 
 
+CLIP_CHECK_MIN_LINES = 24     # rows shorter than this (in text lines) cannot be taller than a page
+
+
 def _norm_text(s: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^\w]+", " ", s)).strip().casefold()
 
@@ -84,14 +87,16 @@ def _rescue_clipped_rows(ctx, pkg, work, use_layout, settings, log, res_changes:
         for tr in locked:
             if tr.getparent() is None:
                 continue
-            paras = [para_text(p).strip() for p in tr.iter(w("p"))]
-            real = [p for p in paras if len(_norm_text(p)) >= 12]
+            if tables.row_lines(tr) < CLIP_CHECK_MIN_LINES:
+                continue                                            # far too short to be taller than a page
+            paras = [_norm_text(para_text(p)) for p in tr.iter(w("p"))]
+            real = [p for p in paras if p]                          # every non-empty paragraph, however short
             if len(real) < 3:
-                continue                                            # a short row cannot be taller than a page
+                continue
             # the same sentence can repeat inside a row (e.g. one solution per operating system), so test the JUNCTION of
             # the last two paragraphs, which is unique to the true end of the row
-            key = (_norm_text(real[-2])[-30:] + " " + _norm_text(real[-1])[:30]).strip()
-            if key and key not in whole:
+            key = (real[-2][-30:] + " " + real[-1][:30]).strip()
+            if len(key) >= 8 and key not in whole:
                 clipped.append(tr)
         if not clipped:
             break

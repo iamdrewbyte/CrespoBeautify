@@ -186,3 +186,9 @@ def test_problems_are_explained_in_plain_language():
     assert all(g["why"] and g["fix"] for g in got)
     assert explain_report(None, [], []) == []
     assert explain_report("KeyError: 'x'", [], [])[0]["title"] == "The report could not be processed"
+
+
+def test_long_row_note_is_explained_as_check_not_error():
+    from crespoqa.core.explain import explain_report
+    got = explain_report(None, [], [dict(page=64, what="Long row left as it is (taller than a page): check where it splits across pages")])
+    assert got[0]["level"] == "check" and got[0]["title"] == "A long entry was left as it is" and got[0]["page"] == "64"
