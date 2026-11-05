@@ -88,7 +88,7 @@ _WIN = os.name == "nt"
 
 
 def _program_dirs() -> list[Path]:
-    return [Path(os.environ[k]) for k in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA") if os.environ.get(k)]
+    return [Path(os.environ[k]) for k in ("ProgramW6432", "ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA") if os.environ.get(k)]
 
 
 def find_soffice(configured: str = "") -> str | None:
