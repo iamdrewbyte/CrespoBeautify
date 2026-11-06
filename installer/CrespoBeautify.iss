@@ -4,6 +4,10 @@
 [Setup]
 AppName={#AppName}
 AppVersion=1.0
+AppPublisher=CrespoBeautify
+WizardStyle=modern
+SetupIconFile=CrespoBeautify.ico
+UninstallDisplayIcon={app}\app\crespoqa\web\static\favicon.ico
 DefaultDirName={localappdata}\CrespoBeautify
 DisableDirPage=yes
 DisableProgramGroupPage=yes
@@ -19,6 +23,9 @@ Source: "..\crespoqa\*"; DestDir: "{app}\app\crespoqa"; Flags: recursesubdirs ig
 Source: "..\requirements-runtime.txt"; DestDir: "{app}\app"; Flags: ignoreversion
 Source: "Start-CrespoBeautify.cmd"; DestDir: "{app}\app\windows"; Flags: ignoreversion
 Source: "Setup-CrespoBeautify.ps1"; DestDir: "{app}"; Flags: ignoreversion
+
+[Icons]
+Name: "{autoprograms}\CrespoBeautify"; Filename: "{app}\app\windows\Start-CrespoBeautify.cmd"; WorkingDir: "{app}\app"; IconFilename: "{app}\app\crespoqa\web\static\favicon.ico"; Comment: "Open CrespoBeautify"
 
 [Run]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\Setup-CrespoBeautify.ps1"" -InstallDir ""{app}"""; StatusMsg: "Installing LibreOffice, Poppler, the AI model and the app (this takes a while)..."; Flags: waituntilterminated

@@ -34,14 +34,29 @@ function Winget-Install($id, $label) {
 }
 
 # Python 3.10+ that is a real install (not the Microsoft Store stub)
+function Test-Python($exe, $extra) {
+  try {
+    # no quotes inside the code: Windows PowerShell 5.1 strips them when calling a program
+    $out = @(& $exe @extra -c 'import sys;print(sys.version_info[0]*100+sys.version_info[1]);print(sys.executable)' 2>$null)
+    if ($out.Count -ge 2 -and [int]$out[0] -ge 310 -and (Test-Path $out[1]) -and $out[1] -notmatch 'WindowsApps') { return [string]$out[1] }
+  } catch {}
+  return $null
+}
 function Find-Python {
-  foreach ($c in @('py -3.12','py -3.11','py -3.13','py -3.10','python')) {
-    try {
-      $parts = $c.Split(' '); $exe = $parts[0]; $args2 = @($parts | Select-Object -Skip 1) + @('-c','import sys;print(sys.executable if sys.version_info>=(3,10) else "")')
-      if (-not (Have $exe)) { continue }
-      $out = (& $exe @args2 2>$null | Select-Object -First 1)
-      if ($out -and (Test-Path $out) -and $out -notmatch 'WindowsApps') { return $out }
-    } catch {}
+  foreach ($c in @(@('py','-3.12'),@('py','-3.11'),@('py','-3.13'),@('py','-3.10'),@('python'))) {
+    if (-not (Have $c[0])) { continue }
+    $extra = @($c | Select-Object -Skip 1)
+    $r = Test-Python $c[0] $extra
+    if ($r) { return $r }
+  }
+  # where the python.org installer puts it for the current user / all users
+  $dirs = @("$env:LOCALAPPDATA\Programs\Python", $env:ProgramFiles, "${env:ProgramFiles(x86)}")
+  foreach ($d in $dirs) {
+    if ($d -and (Test-Path $d)) {
+      foreach ($exe in (Get-ChildItem -Path $d -Filter python.exe -Recurse -Depth 2 -ErrorAction SilentlyContinue | Sort-Object FullName -Descending)) {
+        $r = Test-Python $exe.FullName @(); if ($r) { return $r }
+      }
+    }
   }
   return $null
 }
@@ -64,7 +79,7 @@ Ok $py
 # ---- 2. LibreOffice
 Step '2/7' 'LibreOffice (used to check page numbers)'
 function Find-Soffice {
-  foreach ($b in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, "$env:LOCALAPPDATA\Programs")) {
+  foreach ($b in @($env:ProgramW6432, $env:ProgramFiles, ${env:ProgramFiles(x86)}, "$env:LOCALAPPDATA\Programs")) {
     if ($b -and (Test-Path "$b\LibreOffice\program\soffice.exe")) { return "$b\LibreOffice\program\soffice.exe" }
   }
   if (Have 'soffice') { return (Get-Command soffice).Source }
@@ -128,23 +143,35 @@ $envFile = Join-Path $app '.env'
 if (-not (Test-Path $envFile)) {
 @"
 # CrespoBeautify settings (this file stays on this computer)
-AI_ENABLED=$aiOn
 AI_BASE_URL=http://localhost:11434/v1
 AI_MODEL=$Model
 AI_TIMEOUT_S=300
 CRESPOQA_PORT=8000
-# CRESPOQA_SAVE_DIR=C:\Users\you\Downloads   (uncomment to save results back into a folder; the old file is kept in CrespoBeautify_originals)
 "@ | Set-Content -Encoding ASCII $envFile
-  Ok 'settings written'
-} else { Ok 'settings already exist: left unchanged' }
-if ($soffice)    { Add-Content $envFile "CRESPOQA_SOFFICE=$soffice" }
-if ($pdftotext)  { Add-Content $envFile "CRESPOQA_PDFTOTEXT=$pdftotext" }
+}
+# set a key (replace its active line, or add it); `-OnlyIfMissing` keeps a value the user chose themselves
+function Set-EnvKey($key, $value, [switch]$OnlyIfMissing) {
+  $lines = @(Get-Content $envFile)
+  $idx = -1; for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -match ('^\s*' + [regex]::Escape($key) + '\s*=')) { $idx = $i } }
+  if ($idx -ge 0 -and $OnlyIfMissing) { return }
+  if ($idx -ge 0) { $lines[$idx] = "$key=$value" } else { $lines += "$key=$value" }
+  $lines | Set-Content -Encoding ASCII $envFile
+}
+Set-EnvKey 'AI_ENABLED' $aiOn                                   # on once the model is really installed
+# Results are saved into the Downloads folder under the SAME file name as the upload; a file being replaced is first
+# copied to CrespoBeautify_originals. Delete this line to get a normal browser download instead.
+Set-EnvKey 'CRESPOQA_SAVE_DIR' ([Environment]::GetFolderPath('UserProfile') + '\Downloads') -OnlyIfMissing
+if ($soffice)   { Set-EnvKey 'CRESPOQA_SOFFICE' $soffice }
+if ($pdftotext) { Set-EnvKey 'CRESPOQA_PDFTOTEXT' $pdftotext }
+Ok ("settings written (AI review: $aiOn, results saved to your Downloads folder)")
 
 $start = Join-Path $app 'windows\Start-CrespoBeautify.cmd'
 if (-not (Test-Path $start)) { $start = Join-Path $InstallDir 'Start-CrespoBeautify.cmd' }
 $lnk = Join-Path ([Environment]::GetFolderPath('Desktop')) 'CrespoBeautify.lnk'
 $sh = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
-$sh.TargetPath = $start; $sh.WorkingDirectory = $app; $sh.Description = 'CrespoBeautify'; $sh.Save()
+$sh.TargetPath = $start; $sh.WorkingDirectory = $app; $sh.Description = 'CrespoBeautify'
+$ico = Join-Path $app 'crespoqa\web\static\favicon.ico'; if (Test-Path $ico) { $sh.IconLocation = $ico }
+$sh.Save()
 Ok 'desktop shortcut created'
 
 # ---- 7. Self-test
