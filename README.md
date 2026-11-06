@@ -1,2 +1,2 @@
 # CrespoBeautify
-Tool for QA'ing the reports
+Tool for Automating the QA of reports - Offline Qwen 2.5 Model
